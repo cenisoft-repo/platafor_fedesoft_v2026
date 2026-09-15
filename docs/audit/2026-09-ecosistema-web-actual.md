@@ -69,3 +69,46 @@ Esta auditoría se hizo **desde afuera**: el entorno de desarrollo no tiene perm
 - Estructura exportable de WordPress (usuarios, directorio) para la migración.
 
 **Cómo destrabarlo:** (a) permitir `fedesoft.org` y subdominios en la política de red del entorno de Claude Code, o (b) entregar un export HTML/capturas de las páginas de afiliados y el manual de marca.
+
+---
+
+## 6. Recorrido observado en video (septiembre 2026)
+
+Fuente: grabación de pantalla (4:41) navegando la Zona de Afiliados de `fedesoft.org` con sesión iniciada, aportada por Cenisoft. Reemplaza parcialmente el pendiente `RQ-FED-028`: cubre la **capa pública y de navegación** de la zona; **no** aparecen las pantallas de datos propios del afiliado (ver "Lo que el video no muestra").
+
+### 6.1 Qué es hoy la "Zona de Afiliados"
+
+Es una **página de aterrizaje dentro del WordPress público**, con encabezado "CONOCE NUESTRA ZONA DE AFILIADOS" y un botón "INICIAR RECORRIDO". Funciona como un **lanzador**: cuatro tarjetas que enlazan hacia sistemas separados, no como un espacio de trabajo integrado con los datos de la empresa.
+
+| Tarjeta | Botón | A dónde lleva | Módulo del portal que lo absorbe |
+|---|---|---|---|
+| **Pagos en línea** — "Realice pagos en línea de forma rápida, fácil y segura" | Portal de pagos | `pagos.fedesoft.org` (sistema aparte) | M2 Estado de cuenta y pago |
+| **Fortalecimiento de capacidades** — "Impulse las capacidades de su equipo con formación especializada" | Ver programas | Modal con TrainingLAB (Hands On / On demand), CertificaTI Series, Red C+I Series; cada uno con "Clic aquí" | M4 Formación |
+| **TIC Talks y sesiones** — "Acceda a charlas, lanzamientos y espacios de actualización" | Ver sesiones | Modal con Tic Talks y Sesiones Informativas | M4 Formación |
+| **BOARD.BIT** — "Impulse la presencia de su empresa en el directorio TI de Fedesoft" | Ver directorio | Directorio de afiliados | M6 Directorio y visibilidad |
+
+Debajo, sección **TALENTO TI** con TrainingLAB y botones "Registrarme" / "Ver sesiones pasadas".
+
+### 6.2 Componentes recorridos
+
+- **Directorio de afiliados** ("El directorio de las empresas de Software de Colombia"): buscador con tres pestañas — **Afiliados**, **Busco Proveedor**, **Ofertas de Servicio** — y filtros **Tipo de oferta**, **Categoría** (p. ej. "Desarrollo a la medida / apps"), botón "Buscar Afiliado". Marcas visibles: Choucair, Comforce, OlimpIA, Optima, NovaIP, Cuántico, Firefly. Es el mismo directorio de `fedesoft.co`.
+- **Calendario de Eventos 2026**: rejilla mensual enero–diciembre; tarjetas de evento con **Modalidad** (Virtual/Presencial), **Exclusivo afiliados** (Sí/No), **Costo** (Sí/No), correo de contacto (`coordinaciontalentoti@fedesoft.org`, `coord.competitividad@fedesoft.org`, `gestorservicios@cenisoft.org`) y estado **Registro** o **Finalizado**. Eventos vistos: TrainingLAB (varias fechas), Series C+I, International Soft Route, Meet and Challenge, Tic Talk.
+- **Directorio de universidades** (iniciativa Fedesoft + REDIS): formulario con **aviso de tratamiento de datos** citando la Ley de Habeas Data (Ley Estatutaria 1581 de 2012). Es la única pantalla con captura de datos que aparece en el video.
+- **Home institucional**: Quiénes somos, Cenisoft, **Servicios gremiales** (carrusel: Información exclusiva para afiliados · Networking y encadenamiento · Acceso a verticales · Internacionalización), Cifras del sector (PIB), Noticias, banner WO4TIC / REVENUE X EMPLEADO / Verticales / Directorio.
+
+### 6.3 Lo que el video confirma
+
+1. **La Zona de Afiliados no es un back-office: es un catálogo de enlaces.** Reparte al afiliado hacia `pagos.`, el directorio y formularios de registro, cada uno un sistema distinto. Es exactamente la fragmentación que el portal unifica (principio de fuente única).
+2. **No hay segmentación ni personalización.** La misma zona para todos; nada depende de quién inició sesión ni del estado de su afiliación.
+3. **Los trámites viven fuera.** Formación y eventos se resuelven por "Registro"/correo; el pago, en otro subdominio; los datos personales se piden en formularios sueltos con su propio aviso de Habeas Data (riesgo de datos dispersos).
+4. **El contenido es rico** (formación, verticales, directorio, eventos, insights como REVENUE X EMPLEADO): el valor existe, pero está desconectado del perfil del afiliado.
+
+### 6.4 Lo que el video NO muestra (sigue pendiente para cerrar `RQ-FED-028`)
+
+No aparecen las pantallas donde el afiliado ve o edita **sus propios datos**:
+- Formulario de **actualización de datos de la empresa** (campos reales → modelo `Organization`/`Contact`).
+- **Estado de cuenta** con los cargos de esa empresa y el flujo de pago dentro de `pagos.fedesoft.org`.
+- **Solicitud o descarga de certificado** de afiliación.
+- Cualquier **vista administrativa** del equipo de Fedesoft.
+
+Probable causa (a confirmar): esas funciones no son pantallas integradas, sino formularios externos y sistemas separados. Confirmarlo define cuánto del "back-office" del afiliado hay que construir desde cero (casi todo) frente a cuánto se migra.
