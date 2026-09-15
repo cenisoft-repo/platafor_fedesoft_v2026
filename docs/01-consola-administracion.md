@@ -1,6 +1,6 @@
 # Consola de administración — operabilidad del super usuario
 
-**Versión 0.1 · 15 de septiembre de 2026 · Estado: propuesto para aprobación antes de la Fase 1**
+**Versión 0.2 · 15 de septiembre de 2026 · Estado: decisiones estructurales aprobadas (app separada, Opción A, BI existente, aprobación con acta); detalles pendientes en la sección 10**
 
 La consola es el *back-office* del Portal Único del Afiliado: desde ella Fedesoft configura, opera, interviene y mide todo el sistema. Este documento define **roles internos y permisos, parametrización, CRUDs por dominio, gestiones operativas, analítica/dashboards/resultados, seguridad y arquitectura**, y su encaje en el plan. Complementa —no reemplaza— los documentos rectores de `docs/base/`.
 
@@ -36,7 +36,7 @@ La consola es el *back-office* del Portal Único del Afiliado: desde ella Fedeso
 | **Dirección** (`DIR`) | Presidencia Ejecutiva / dirección | Dashboards y resultados, reportes, aprobaciones de segundo nivel, lectura del padrón | Global de lectura |
 | **Auditor** (`AUD`) | Revisoría / control | Auditoría, reportes y exportaciones, sin mutación | Global de lectura |
 
-Un usuario interno puede tener más de un rol. El flujo de aprobación de afiliación por Junta Directiva se modela como **aprobación registrada** (acta, fecha, aprobador) ejecutada por `OPS` o por un rol mínimo `Aprobador de afiliación` (decisión pendiente, sección 10).
+Un usuario interno puede tener más de un rol. La aprobación de afiliación por la Junta Directiva ocurre fuera del sistema y se modela como **aprobación registrada** por `OPS` con número de acta, fecha y aprobador (decidido, sección 10); la Junta no necesita acceso a la consola.
 
 ### 2.2 Matriz de permisos por recurso
 
@@ -196,7 +196,7 @@ Un **tablero de metas** con objetivos anuales configurables (afiliados, recaudo,
 ### 6.5 Arquitectura de analítica
 - Esquema `analytics` (vistas materializadas + hechos) refrescado por jobs BullMQ y por eventos; API `GET /admin/v1/analytics/*` con periodo y segmento.
 - Dashboards embebidos en la consola (gráficas ligeras, tokens de marca, accesibles).
-- Exploración *ad hoc* con **Metabase** (autoalojado, sin licencia) sobre réplica de lectura, para Dirección y analistas; los tableros oficiales viven en la consola.
+- Exploración *ad hoc* con la **herramienta de BI que Fedesoft ya usa (Power BI / Looker; por confirmar cuál, licencias y administrador)** conectada a una réplica de lectura del esquema `analytics`, con el diccionario de métricas como única fuente de definiciones; los tableros oficiales viven en la consola.
 - Sin PII en agregados; drill-down con permiso; trazabilidad de exportaciones.
 
 ---
@@ -230,13 +230,13 @@ Dos épicas transversales, entregadas por rebanadas junto a cada fase (no al fin
 | 2 · Dinero y documentos | Tarifas y cargos masivos; conciliación; facturas y colas; certificados (excepciones, revocación); monitor de webhooks | Dashboard de Cartera v1 (recaudo, *aging*, facturas) |
 | 3 · Autoservicio ampliado | Administración de formación, comunidades, directorio y campañas | Dashboards de formación, comunidades y visibilidad |
 | 4 · Alto contacto | Administración de verticales, oportunidades y cuentas estratégicas | Dashboard de relacionamiento |
-| 5 · Hardening y salida | Soporte controlado endurecido; pentest de consola; feature flags de piloto | Metabase; tablero de metas y reporte mensual; exportaciones programadas |
+| 5 · Hardening y salida | Soporte controlado endurecido; pentest de consola; feature flags de piloto | Conexión del BI existente (Power BI / Looker) a la réplica de lectura; tablero de metas y reporte mensual; exportaciones programadas |
 
 **Impacto en el cronograma:** el alcance crece; hay dos formas de absorberlo:
 - **Opción A · paralelizar:** dos hilos de frontend (portal y consola) con instancias separadas de A4, mismo backend; mantiene 20 semanas con más agentes en paralelo.
 - **Opción B · extender:** +1 semana en Fase 1, +1 en Fase 2 y +1 en Fase 5 → 23 semanas, hito del recorrido crítico en S10.
 
-Recomendación: **Opción A** con re-calibración en H2; si la revisión semanal muestra que el hilo de consola atrasa el portal, pasar a B.
+**Decisión (15 sep 2026): Opción A**, con re-calibración en H2; si la revisión semanal muestra que el hilo de consola atrasa el portal, se pasa a B.
 
 ---
 
@@ -244,12 +244,12 @@ Recomendación: **Opción A** con re-calibración en H2; si la revisión semanal
 
 | # | Decisión | Recomendación |
 |---|---|---|
-| 1 | Consola como app separada (`apps/admin`) o área `/admin` del portal | App separada (aislamiento de seguridad y despliegue) |
-| 2 | Áreas internas reales y quién aprueba la afiliación (Junta Directiva) | Roles de la sección 2.1; aprobación registrada por `OPS` con acta, o rol mínimo `Aprobador` |
-| 3 | Herramienta de BI para exploración | Metabase autoalojado; si ya existe Power BI/Looker, se conecta a la réplica de lectura |
+| 1 | Consola como app separada (`apps/admin`) o área `/admin` del portal | **Decidido (15 sep 2026):** app separada `apps/admin` |
+| 2 | Áreas internas reales y quién aprueba la afiliación (Junta Directiva) | **Decidido:** aprobación registrada por `OPS` con número de acta, fecha y aprobador; la Junta decide fuera del sistema. **Pendiente:** confirmar nombres y personas por rol interno |
+| 3 | Herramienta de BI para exploración | **Decidido:** la herramienta existente de Fedesoft (Power BI / Looker) sobre réplica de lectura. **Pendiente:** cuál es, licencias y quién la administra |
 | 4 | ¿Se mantiene el pago por transferencia bancaria? | Sí durante la transición, con registro manual + soporte + conciliación; meta: minimizarlo |
 | 5 | Lista de acciones con doble control | La de la sección 7; editable solo por `SA` |
 | 6 | Soporte "ver como afiliado": ¿solo lectura o con acciones? | Solo lectura por defecto; acciones en nombre de con motivo y auditoría |
 | 7 | Metas anuales del tablero de resultados: quién las define y cuándo | Dirección, en la revisión del hito H1; ajustables por `DIR` con auditoría |
 | 8 | Profundidad de la migración inicial (padrón + cartera histórica: ¿cuántos años?) | Padrón completo + cartera de los últimos 2 años; histórico anterior como archivo |
-| 9 | Opción A (paralelizar) u Opción B (extender) para absorber el alcance | Opción A |
+| 9 | Opción A (paralelizar) u Opción B (extender) para absorber el alcance | **Decidido:** Opción A, re-calibración en H2 |

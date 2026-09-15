@@ -37,7 +37,7 @@ Las fases son las del documento base (sección 12); aquí se concretan entregabl
 | 2 | Tarifas y cargos masivos; conciliación; facturas y colas; certificados (excepciones, revocación); monitor de webhooks | Dashboard de Cartera v1 |
 | 3 | Administración de formación, comunidades, directorio y campañas | Dashboards de formación, comunidades y visibilidad |
 | 4 | Administración de verticales, oportunidades y cuentas estratégicas | Dashboard de relacionamiento |
-| 5 | Soporte controlado endurecido; pentest de consola; flags de piloto | Metabase; tablero de metas; reporte mensual; exportaciones programadas |
+| 5 | Soporte controlado endurecido; pentest de consola; flags de piloto | Conexión del BI existente (Power BI / Looker); tablero de metas; reporte mensual; exportaciones programadas |
 
 **Fuera del alcance inicial** (backlog fase 6): programas de talento (Talentsoft, Creadores TI, conexión con universidades), CMS del sitio institucional, app móvil nativa.
 
@@ -109,7 +109,7 @@ flowchart LR
 **Hitos:** H1 Fundación (S2) · H2 Núcleo e identidad (S5) · H3 Recorrido crítico (S9) · H4 Eje 1 (S13) · H5 Eje 2 (S16) · H6 Piloto (S20).
 La estimación se re-calibra en cada hito con la velocidad real de las iteraciones previas.
 
-**Absorción de la consola y la analítica (EPIC-13/14):** cada iteración incluye su rebanada de consola. Para no correr los hitos se propone la **Opción A**: dos hilos de frontend en paralelo (portal y consola) con instancias separadas del agente A4 sobre el mismo backend. Alternativa **Opción B**: +1 semana en Fase 1, +1 en Fase 2 y +1 en Fase 5 (23 semanas; recorrido crítico en S10). Decisión pendiente en la sección 6.
+**Absorción de la consola y la analítica (EPIC-13/14) — decidido: Opción A.** Cada iteración incluye su rebanada de consola con dos hilos de frontend en paralelo (portal y consola), instancias separadas del agente A4 sobre el mismo backend; los hitos no se mueven y se re-calibra en H2. Respaldo, Opción B: +1 semana en Fase 1, +1 en Fase 2 y +1 en Fase 5 (23 semanas; recorrido crítico en S10) si el hilo de consola atrasa el portal.
 
 ---
 
@@ -133,6 +133,7 @@ Los agentes representan responsabilidades técnicas estables (documento base, se
 **Reglas de coordinación**
 - A3, A4 y A6 trabajan en paralelo en ramas o worktrees separados, solo en los archivos de su dominio; una dependencia cruzada se convierte en tarea para el dueño, nunca en "arreglo rápido".
 - A5 y A7 revisan siempre antes de integrar; un `BLOCKED` devuelve la historia a implementación.
+- El frontend corre en dos hilos (portal `apps/web` y consola `apps/admin`) con instancias separadas de A4, cada una con su historia y su rama (Opción A).
 - A0 no implementa cambios grandes sin revisión de A1; sí puede hacer cambios pequeños y de integración.
 - Tras las tres primeras iteraciones se revisa el reparto: fusionar agentes poco usados o dividir los saturados (ADR-003).
 
@@ -191,9 +192,9 @@ Ninguna bloquea la Fase 0. Cada una tiene una propuesta para avanzar y una fecha
 | SLO / RPO / RTO | Disponibilidad 99,5 % mensual; RPO 1 h; RTO 4 h; medidos desde staging | Cenisoft | S17 | S10 |
 | Proveedor cloud y TCO a 12 meses | Web en Vercel (ya en uso); API y worker en contenedores (Railway/Render/Fly.io o AWS ECS); PostgreSQL gestionado; Redis gestionado; almacenamiento S3-compatible (Cloudflare R2 / AWS S3). Desarrollo 100 % local con Docker hasta que se decida | Cenisoft + Fedesoft (presupuesto) | Staging en S2 (puede empezar local) | S4 |
 | Subdominio y convivencia con WordPress | `portal.fedesoft.org`; ADR-004 | Fedesoft (comunicaciones) | S2 (configuración) | S2 |
-| Consola de administración: app separada, roles internos, aprobación de afiliación, doble control, soporte "ver como" | Propuestas en `docs/01-consola-administracion.md`, sección 10 (ADR-005) | Cenisoft + Fedesoft | S1 (`apps/admin` en la fundación) | S1 |
-| Herramienta de BI y metas anuales del tablero de resultados | Metabase autoalojado sobre réplica de lectura; metas definidas por Dirección en H1 | Fedesoft (Dirección) + Cenisoft | S17 (BI); S2 (metas) | S2 |
-| Absorción del alcance de consola (Opción A paralelizar / Opción B extender a 23 semanas) | Opción A, con re-calibración en H2 | Cenisoft | S1 | S1 |
+| Consola de administración | **Decidido (15 sep 2026):** app separada `apps/admin`; aprobación de afiliación registrada por Operaciones con acta (ADR-005). **Pendiente:** personas por rol interno y lista final de acciones con doble control | Cenisoft + Fedesoft | S1 (`apps/admin` en la fundación) | S2 |
+| Herramienta de BI y metas anuales del tablero de resultados | **Decidido:** la herramienta existente de Fedesoft (Power BI / Looker) sobre réplica de lectura. **Pendiente:** cuál es y quién la administra; metas definidas por Dirección en H1 | Fedesoft (Dirección) + Cenisoft | S17 (BI); S2 (metas) | S2 |
+| Absorción del alcance de consola | **Decidido:** Opción A (paralelizar), re-calibración en H2 | Cenisoft | S1 | — |
 
 ---
 
@@ -227,6 +228,8 @@ Tareas para la primera iteración, con agente dueño y verificación:
 | 00.8 | CI GitHub Actions: lint, typecheck, test, build, migraciones, secret scanning, SCA | A8 | PR con checks verdes |
 | 00.9 | Threat model v0 (auth, tenant, pagos, webhooks, archivos) en `docs/security/` | A5 | Revisado por el gestor TI |
 | 00.10 | Plantilla de PR, CODEOWNERS, protección de `main` | A8 + A9 | Configurado en GitHub |
+| 00.11 | `apps/admin` con guard de rol interno, MFA en el realm de desarrollo, layout de consola y páginas de estado | A4 (consola) + A3 | Usuario sin rol interno recibe 403; `GET /admin/v1/health` |
+| 00.12 | Dominio Config (parámetros, catálogos, feature flags base) + esquema `analytics` vacío + diccionario de métricas v0 en `docs/analytics/` | A2 + A3 | Migración en CI; `config.changed` publicado por outbox |
 
 **Lo que necesito de Fedesoft/Cenisoft esta semana**
 1. Aprobación de este plan (o ajustes).

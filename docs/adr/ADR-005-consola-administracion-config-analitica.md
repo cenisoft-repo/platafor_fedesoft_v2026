@@ -1,6 +1,6 @@
 # ADR-005 · Consola de administración como aplicación separada, dominio Config y analítica como proyecciones de solo lectura
 
-- **Estado:** Propuesto (requiere validación de Cenisoft y Fedesoft)
+- **Estado:** Aceptado (15 de septiembre de 2026). Ajuste respecto a la propuesta: la exploración analítica usa la herramienta de BI existente de Fedesoft (Power BI / Looker) en lugar de Metabase.
 - **Fecha:** 2026-09-15
 - **Decisores:** Gestor TI de Cenisoft · Tech lead A0 · Revisión A1/A5
 
@@ -17,7 +17,7 @@ Para la configuración: (a) constantes en código, (b) tabla clave-valor sin esq
 ## Decisión
 - **Opción 2:** `apps/admin` (Next.js) separada, mismo `apps/api` con módulos de administración protegidos por roles internos (RBAC + ABAC). El portal público nunca contiene código de administración.
 - **Config como dominio:** `Parameter`, `Catalog`/`CatalogItem`, `RateTable`/`Rate`, `Template` versionado, `FeatureFlag`, `ProviderSetting`; valores validados por esquema, con alcance (global → segmento → empresa), vigencia y versión; cambios auditados, con doble control donde aplique, y publicados como `config.changed`.
-- **Analítica derivada:** esquema `analytics` de solo lectura con vistas materializadas y tablas de hechos, refrescado por eventos de dominio y jobs; diccionario de métricas versionado; dashboards oficiales en la consola y exploración *ad hoc* con Metabase sobre réplica de lectura. Ningún módulo mantiene tablas paralelas de reporte.
+- **Analítica derivada:** esquema `analytics` de solo lectura con vistas materializadas y tablas de hechos, refrescado por eventos de dominio y jobs; diccionario de métricas versionado; dashboards oficiales en la consola y exploración *ad hoc* con la herramienta de BI existente de Fedesoft (Power BI / Looker) sobre réplica de lectura. Ningún módulo mantiene tablas paralelas de reporte.
 - **Nuevos dominios:** Config, Analytics, Support (soporte controlado e impersonación auditada), DataOps (importación, exportación, solicitudes de datos personales).
 - **Épicas transversales:** EPIC-13 (consola y parametrización) y EPIC-14 (analítica y resultados), entregadas por rebanadas en cada fase.
 
