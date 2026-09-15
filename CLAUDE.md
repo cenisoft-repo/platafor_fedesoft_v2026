@@ -11,6 +11,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
   - `docs/base/01-arquitectura-plataforma.md` — qué debe hacer la plataforma: 2 ejes, 3 capas, 9 módulos, criterios de evaluación.
   - `docs/base/02-documento-base-desarrollo.md` — cómo se construye: stack, dominios, modelo de datos, seguridad, agentes, roadmap, DoD, harness.
   - `docs/01-consola-administracion.md` — operabilidad del super usuario y del equipo interno: roles y permisos, parametrización, CRUDs, gestiones operativas, analítica y resultados (EPIC-13/14).
+  - `docs/02-catalogo-de-requerimientos.md` — catálogo trazable de requerimientos (RF/RA/RI/RD/RNF) con prioridad, fase y criterio de aceptación; su Anexo A lista lo que Fedesoft debe entregar, decidir o autorizar.
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
