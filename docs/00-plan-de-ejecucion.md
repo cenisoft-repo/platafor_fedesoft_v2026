@@ -1,6 +1,6 @@
 # Plan de ejecución — Portal Único del Afiliado (Fedesoft)
 
-**Versión 0.1 · 15 de septiembre de 2026 · Estado: propuesto para aprobación**
+**Versión 0.2 · 15 de septiembre de 2026 · Estado: propuesto para aprobación** — v0.2 incorpora la consola de administración y la analítica (`docs/01-consola-administracion.md`, ADR-005) como épicas transversales EPIC-13 y EPIC-14.
 
 Este es el índice de trabajo del proyecto. Responde a cinco preguntas: **qué** se construye, **cómo**, **cuándo**, **con qué agentes** y **bajo qué modelo**. Se actualiza al cierre de cada iteración. Los detalles técnicos viven en los documentos rectores (`docs/base/`) y las decisiones en `docs/adr/`; aquí no se repiten, se enlazan.
 
@@ -27,6 +27,17 @@ Las fases son las del documento base (sección 12); aquí se concretan entregabl
 | **3 · Autoservicio ampliado** (EPIC-06, 07, 08) | Eje 1 completo | Formación (catálogo, cupos, inscripción de un clic, historial por empresa, grabaciones) · Comunidades (acceso por rol, cupos, materiales) · Directorio verificado alimentado por el perfil + ofertas #AfiliadosFedesoft + insights por tipo de afiliación · API pública de solo lectura del directorio | Historia 13.2; lista de verificación (arquitectura, sección 6) en "cumple" para módulos 1–6 |
 | **4 · Alto contacto** (EPIC-09, 10, 11) | Eje 2 completo | Verticales (agenda, documentos, participación) · Proyectos/oportunidades Cenisoft filtrados por perfil con postulación y seguimiento · Panel KAM consolidado sin tablas paralelas | Historia 13.3; el KAM solo ve sus empresas; el panel consolida desde los dominios originales |
 | **5 · Hardening y salida** (EPIC-12) | Producción controlada | Pentest y remediación · SLO medidos · backups y restore drill · migración del padrón ensayada en staging · manuales por rol · redirecciones desde los sitios actuales · piloto con un grupo de empresas | Sin hallazgos críticos/altos abiertos; restore documentado; piloto con métricas de autoservicio (trámites sin intervención humana) |
+
+**Transversal a todas las fases — consola de administración y analítica** (definido antes de la Fase 1 en `docs/01-consola-administracion.md`):
+
+| Fase | EPIC-13 · Consola y parametrización | EPIC-14 · Analítica y resultados |
+|---|---|---|
+| 0 | `apps/admin` con guard interno y MFA; auditoría base; dominio Config (catálogos y parámetros base) | Esquema `analytics`; diccionario de métricas v0 |
+| 1 | Ficha 360; CRUD de empresas, contactos y afiliaciones; bandeja de solicitudes; usuarios internos y roles; mapeo de importación del padrón | Dashboard de Operaciones v1 |
+| 2 | Tarifas y cargos masivos; conciliación; facturas y colas; certificados (excepciones, revocación); monitor de webhooks | Dashboard de Cartera v1 |
+| 3 | Administración de formación, comunidades, directorio y campañas | Dashboards de formación, comunidades y visibilidad |
+| 4 | Administración de verticales, oportunidades y cuentas estratégicas | Dashboard de relacionamiento |
+| 5 | Soporte controlado endurecido; pentest de consola; flags de piloto | Metabase; tablero de metas; reporte mensual; exportaciones programadas |
 
 **Fuera del alcance inicial** (backlog fase 6): programas de talento (Talentsoft, Creadores TI, conexión con universidades), CMS del sitio institucional, app móvil nativa.
 
@@ -97,6 +108,8 @@ flowchart LR
 
 **Hitos:** H1 Fundación (S2) · H2 Núcleo e identidad (S5) · H3 Recorrido crítico (S9) · H4 Eje 1 (S13) · H5 Eje 2 (S16) · H6 Piloto (S20).
 La estimación se re-calibra en cada hito con la velocidad real de las iteraciones previas.
+
+**Absorción de la consola y la analítica (EPIC-13/14):** cada iteración incluye su rebanada de consola. Para no correr los hitos se propone la **Opción A**: dos hilos de frontend en paralelo (portal y consola) con instancias separadas del agente A4 sobre el mismo backend. Alternativa **Opción B**: +1 semana en Fase 1, +1 en Fase 2 y +1 en Fase 5 (23 semanas; recorrido crítico en S10). Decisión pendiente en la sección 6.
 
 ---
 
@@ -178,6 +191,9 @@ Ninguna bloquea la Fase 0. Cada una tiene una propuesta para avanzar y una fecha
 | SLO / RPO / RTO | Disponibilidad 99,5 % mensual; RPO 1 h; RTO 4 h; medidos desde staging | Cenisoft | S17 | S10 |
 | Proveedor cloud y TCO a 12 meses | Web en Vercel (ya en uso); API y worker en contenedores (Railway/Render/Fly.io o AWS ECS); PostgreSQL gestionado; Redis gestionado; almacenamiento S3-compatible (Cloudflare R2 / AWS S3). Desarrollo 100 % local con Docker hasta que se decida | Cenisoft + Fedesoft (presupuesto) | Staging en S2 (puede empezar local) | S4 |
 | Subdominio y convivencia con WordPress | `portal.fedesoft.org`; ADR-004 | Fedesoft (comunicaciones) | S2 (configuración) | S2 |
+| Consola de administración: app separada, roles internos, aprobación de afiliación, doble control, soporte "ver como" | Propuestas en `docs/01-consola-administracion.md`, sección 10 (ADR-005) | Cenisoft + Fedesoft | S1 (`apps/admin` en la fundación) | S1 |
+| Herramienta de BI y metas anuales del tablero de resultados | Metabase autoalojado sobre réplica de lectura; metas definidas por Dirección en H1 | Fedesoft (Dirección) + Cenisoft | S17 (BI); S2 (metas) | S2 |
+| Absorción del alcance de consola (Opción A paralelizar / Opción B extender a 23 semanas) | Opción A, con re-calibración en H2 | Cenisoft | S1 | S1 |
 
 ---
 

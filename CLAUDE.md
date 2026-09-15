@@ -10,6 +10,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
 - **Documentos rectores (fuente de verdad documental):**
   - `docs/base/01-arquitectura-plataforma.md` — qué debe hacer la plataforma: 2 ejes, 3 capas, 9 módulos, criterios de evaluación.
   - `docs/base/02-documento-base-desarrollo.md` — cómo se construye: stack, dominios, modelo de datos, seguridad, agentes, roadmap, DoD, harness.
+  - `docs/01-consola-administracion.md` — operabilidad del super usuario y del equipo interno: roles y permisos, parametrización, CRUDs, gestiones operativas, analítica y resultados (EPIC-13/14).
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
@@ -27,7 +28,8 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
 ## Arquitectura y stack (ver ADR-001 y ADR-002)
 
 - Monolito modular con límites de dominio estrictos y eventos internos (patrón outbox). Sin microservicios al inicio.
-- `apps/web` Next.js + TypeScript + Tailwind · `apps/api` NestJS + TypeScript · `apps/worker` BullMQ.
+- `apps/web` (portal del afiliado) y `apps/admin` (consola interna, ADR-005) en Next.js + TypeScript + Tailwind · `apps/api` NestJS + TypeScript (endpoints `/v1` y `/admin/v1`) · `apps/worker` BullMQ.
+- Reglas de negocio configurables viven en el dominio Config (parámetros con alcance, vigencia y versión), nunca como constantes en código. La analítica es un esquema `analytics` derivado y de solo lectura.
 - PostgreSQL (Prisma) como fuente única · Redis · almacenamiento S3-compatible · identidad OIDC intercambiable.
 - REST versionada + OpenAPI. `organization_id` es frontera de seguridad. Autorización **siempre en servidor** (RBAC + ABAC).
 - Observabilidad: OpenTelemetry + Sentry; `correlation_id` de extremo a extremo (web → API → jobs).

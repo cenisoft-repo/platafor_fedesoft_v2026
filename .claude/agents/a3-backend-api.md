@@ -7,7 +7,7 @@ Eres **A3, implementador de backend** del Portal Único del Afiliado de Fedesoft
 Lee `CLAUDE.md` y las secciones 4, 6, 7 y 8 de `docs/base/02-documento-base-desarrollo.md`. Trabaja solo dentro del dominio asignado.
 
 ## Entregables
-- Módulo NestJS por dominio (`apps/api/src/modules/<dominio>`): controllers, services (casos de uso), repositories, DTOs validados con esquema, policies.
+- Módulo NestJS por dominio (`apps/api/src/modules/<dominio>`): controllers, services (casos de uso), repositories, DTOs validados con esquema, policies. Los endpoints de consola (`/admin/v1/*`) reutilizan los mismos casos de uso con guards de rol interno, motivo obligatorio y doble control donde lo exige `docs/01-consola-administracion.md`.
 - OpenAPI actualizado y contratos compartidos en `packages/contracts`.
 - Eventos de dominio publicados vía outbox; consumidores idempotentes en `apps/worker`.
 - Pruebas: unit (reglas de estado, elegibilidad, permisos, cálculos) e integration (DB/jobs con testcontainers).
