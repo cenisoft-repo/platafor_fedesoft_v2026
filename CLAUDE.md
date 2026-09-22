@@ -14,6 +14,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
   - `docs/02-catalogo-de-requerimientos.md` — catálogo trazable de requerimientos (RF/RA/RI/RD/RNF) con prioridad, fase y criterio de aceptación; su Anexo A lista lo que Fedesoft debe entregar, decidir o autorizar.
   - `docs/03-arquitectura-de-informacion.md` — mapa de navegación, inventario de pantallas por rol y recorridos críticos del portal del afiliado.
   - `docs/04-prompt-prototipo-visual.md` — prompt autocontenido para construir el prototipo visual navegable (sin backend) destinado a la presentación ejecutiva.
+  - `docs/06-estado-vs-alcance.md` — qué demuestra hoy el prototipo frente a los nueve módulos exigidos, y la ruta en tres etapas para cerrar la brecha.
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
