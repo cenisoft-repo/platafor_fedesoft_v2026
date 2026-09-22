@@ -12,6 +12,8 @@ const esquema = z.object({
   REDIS_URL: z.string().url().optional(),
   /** Orígenes permitidos, separados por coma. Sin comodín en producción. */
   CORS_ORIGINS: z.string().default(""),
+  /** Secreto compartido con la pasarela. Sin él no se verifica ninguna firma. */
+  PAYMENT_WEBHOOK_SECRET: z.string().min(32, "Debe tener al menos 32 caracteres."),
 });
 
 export type Env = z.infer<typeof esquema>;

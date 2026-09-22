@@ -69,20 +69,35 @@ test("grants: comodines y límites", () => {
   assert.equal(grants(["billing:*"], "billing"), false);
 });
 
+/** Entorno mínimo válido, sobre el que cada prueba quita una pieza. */
+const ENV_BASE = {
+  DATABASE_URL: "postgresql://u:p@h:5432/d",
+  PAYMENT_WEBHOOK_SECRET: "x".repeat(32),
+} as unknown as NodeJS.ProcessEnv;
+
 test("el entorno inválido impide arrancar", () => {
-  assert.throws(() => loadEnv({ DATABASE_URL: "no-es-una-url" } as NodeJS.ProcessEnv), /DATABASE_URL/);
   assert.throws(
-    () =>
-      loadEnv({
-        NODE_ENV: "production",
-        DATABASE_URL: "postgresql://u:p@h:5432/d",
-      } as NodeJS.ProcessEnv),
+    () => loadEnv({ ...ENV_BASE, DATABASE_URL: "no-es-una-url" }),
+    /DATABASE_URL/,
+  );
+  assert.throws(
+    () => loadEnv({ ...ENV_BASE, NODE_ENV: "production" }),
     /CORS_ORIGINS/,
   );
 });
 
+test("sin secreto de webhook no se arranca", () => {
+  const { PAYMENT_WEBHOOK_SECRET: _omitido, ...sinSecreto } = ENV_BASE as Record<string, string>;
+  assert.throws(() => loadEnv(sinSecreto as NodeJS.ProcessEnv), /PAYMENT_WEBHOOK_SECRET/);
+  /* Un secreto corto es tan inservible como ninguno: se rechaza igual. */
+  assert.throws(
+    () => loadEnv({ ...ENV_BASE, PAYMENT_WEBHOOK_SECRET: "corto" }),
+    /PAYMENT_WEBHOOK_SECRET/,
+  );
+});
+
 test("el entorno válido carga con valores por defecto sanos", () => {
-  const env = loadEnv({ DATABASE_URL: "postgresql://u:p@h:5432/d" } as NodeJS.ProcessEnv);
+  const env = loadEnv(ENV_BASE);
   assert.equal(env.NODE_ENV, "development");
   assert.equal(env.PORT, 3000);
 });

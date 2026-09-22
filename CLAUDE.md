@@ -17,6 +17,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
   - `docs/04-prompt-prototipo-visual.md` — prompt autocontenido para construir el prototipo visual navegable (sin backend) destinado a la presentación ejecutiva.
   - `docs/06-estado-vs-alcance.md` — qué demuestra hoy el prototipo frente a los nueve módulos exigidos, y la ruta en tres etapas para cerrar la brecha.
   - `docs/adr/ADR-006-fundacion-monorepo-y-datos.md` — qué se construyó en EPIC-00 y por qué las invariantes viven en la base de datos.
+  - `docs/adr/ADR-007-recorrido-critico-pago-factura-certificado.md` — el recorrido pago → factura → certificado, sus controles y el orden en que se aplican.
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
@@ -54,6 +55,8 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
 - No tocar módulos fuera del alcance de la tarea "para arreglar rápido": crear una tarea para el agente dueño del dominio.
 - No exponer un endpoint sin `@RequirePermission` o `@Public`: el guard global deniega, y quitarlo no es una opción.
 - No debilitar una invariante de la base de datos para que pase una prueba. Si estorba, discutir la regla en un ADR.
+- No cambiar la respuesta del webhook de pagos para que distinga motivos de fallo: sería un oráculo para el atacante. El detalle va al log y a la auditoría.
+- No leer el `organization_id` del cuerpo de una petición: sale de la sesión. Del cuerpo salen los identificadores de objetos, y siempre se verifica que pertenezcan a la empresa en sesión.
 
 ## Protocolo por tarea (resumen del harness, sección 18 del documento base)
 
@@ -89,6 +92,8 @@ Cuándo invocar cada uno, en qué orden y con qué modelo: `docs/00-plan-de-ejec
 | Capa | Ruta | Nota |
 |---|---|---|
 | API | `apps/api` | NestJS. `/v1` afiliado, `/admin/v1` consola. Guard global de denegar por defecto |
+| Pagos y facturación | `apps/api/src/billing` | Puertos en `ports/`, proveedores solo en `adapters/`. El proveedor se elige en una línea de `billing.module.ts` |
+| Outbox | `apps/api/src/outbox` | Escritura transaccional y despachador con reintentos. En producción va a `apps/worker` |
 | Datos | `packages/db` | Esquema Prisma, migraciones forward-only, semilla sintética, pruebas de integridad |
 | Config compartida | `packages/config` | `tsconfig.base.json` y ESLint base |
 | Infraestructura local | `infra/docker` | PostgreSQL, Redis, almacenamiento S3 |

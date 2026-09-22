@@ -8,7 +8,9 @@ import { loadEnv } from "./config/env.js";
 
 async function bootstrap(): Promise<void> {
   const env = loadEnv();
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  /* rawBody: sin el cuerpo original no hay firma verificable. Reserializar
+     el JSON cambia los bytes y toda firma HMAC falla. */
+  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
 
   app.use(helmet());
 

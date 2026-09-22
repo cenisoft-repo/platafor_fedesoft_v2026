@@ -4,8 +4,10 @@ import { CorrelationMiddleware } from "./common/correlation.middleware.js";
 import { DenyByDefaultGuard } from "./common/deny-by-default.guard.js";
 import { HealthController } from "./health/health.controller.js";
 import { PrismaService } from "./prisma/prisma.service.js";
+import { BillingModule } from "./billing/billing.module.js";
 
 @Module({
+  imports: [BillingModule],
   controllers: [HealthController],
   providers: [
     PrismaService,
