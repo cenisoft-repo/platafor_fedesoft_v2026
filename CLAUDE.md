@@ -70,6 +70,15 @@ A0 (orquestador / tech lead) es la sesión principal. Subagentes especializados:
 `a6-integraciones-fiscal-pagos`, `a7-qa-pruebas`, `a8-devops-observabilidad`, `a9-documentacion-release`.
 Cuándo invocar cada uno, en qué orden y con qué modelo: `docs/00-plan-de-ejecucion.md`, sección "Con qué agentes".
 
+## Dominio único (regla de Cenisoft, 22 sep 2026)
+
+**Todos los proyectos de Fedesoft y Cenisoft viven bajo un solo dominio. No se mezclan dominios ni se dispersan en subdominios de proveedores.**
+
+- Cada despliegue (portal, consola, prototipos, demos) se sirve desde un subdominio del dominio institucional único, nunca desde `*.vercel.app`, `*.netlify.app` ni dominios de terceros salvo de forma temporal y marcada como tal.
+- Un despliegue en la URL por defecto del proveedor es provisional: se le asigna el subdominio definitivo antes de compartirlo fuera del equipo.
+- Nada se publica bajo el alcance o la cuenta de otro proyecto ajeno a Fedesoft/Cenisoft.
+- El dominio definitivo y el responsable del DNS son la decisión pendiente `RQ-FED-009` (`docs/02-catalogo-de-requerimientos.md`, Anexo A).
+
 ## Convenciones
 
 - Monorepo con pnpm workspaces + Turborepo (se crea en EPIC-00). Estructura objetivo: sección 9 de `docs/base/02-documento-base-desarrollo.md`.
