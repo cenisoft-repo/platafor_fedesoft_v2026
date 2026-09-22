@@ -76,10 +76,11 @@ export class ConfirmPaymentUseCase {
       return { outcome: "ignorado", reason: "evento en estado pendiente" };
     }
 
-    /* 3 · El pago se busca por NUESTRA referencia, no por la del proveedor:
-       la referencia externa la controla el otro lado. */
+    /* 3 · El pago se busca por NUESTRA referencia opaca, no por la del
+       proveedor —que la controla el otro lado— ni por la clave de
+       idempotencia, que la propone el cliente. */
     const pago = await this.prisma.payment.findUnique({
-      where: { idempotencyKey: evento.reference },
+      where: { reference: evento.reference },
       include: { charges: true },
     });
 
@@ -145,8 +146,25 @@ export class ConfirmPaymentUseCase {
 
       if (aprobado) {
         await tx.charge.updateMany({
-          where: { id: { in: pago.charges.map((c) => c.chargeId) } },
+          where: {
+            id: { in: pago.charges.map((c) => c.chargeId) },
+            /* Acotado también aquí: el filtro por empresa no se delega a que
+               las filas puente estén bien, aunque la clave compuesta ya lo
+               garantice. Denegar dos veces cuesta poco. */
+            organizationId: pago.organizationId,
+          },
           data: { status: "PAGADO" },
+        });
+
+        /* La factura nace aquí, en EN_PROCESO, dentro de la misma
+           transacción. Así la unicidad de `invoices.payment_id` —y no la
+           disciplina del despachador— es lo que impide emitir dos documentos
+           fiscales por un mismo pago. Una factura duplicada ante la DIAN se
+           deshace con nota crédito, no con un DELETE. */
+        await tx.invoice.upsert({
+          where: { paymentId: pago.id },
+          create: { organizationId: pago.organizationId, paymentId: pago.id, status: "EN_PROCESO" },
+          update: {},
         });
       }
 

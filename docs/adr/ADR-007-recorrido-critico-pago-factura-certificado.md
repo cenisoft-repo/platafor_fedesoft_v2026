@@ -69,6 +69,34 @@ Doce pruebas de extremo a extremo contra base real. Además del camino feliz, cu
 | Reintentar la emisión tres veces | Una sola factura |
 | Empresa con cargo vencido | Sin certificado |
 
+## Revisión de seguridad (A5) y qué se cerró
+
+A5 revisó el recorrido con modelo de amenazas y emitió **CON OBSERVACIONES**. Lo cerrado en esta iteración:
+
+| Hallazgo | Qué era | Cómo quedó |
+|---|---|---|
+| **Escalada por comodín** | `billing:*` concedía `billing:refund`, y un permiso de tres segmentos (`billing:payment:refund`) se partía mal y lo concedía cualquier `billing:*` | Formato validado a exactamente dos segmentos; `SENSITIVE_PERMISSIONS` que ningún comodín satisface. Probado uno por uno |
+| **Cruce entre empresas en el flujo de dinero** | `payment_charges` tenía dos claves foráneas independientes: nada exigía que el cargo fuera de la misma empresa que el pago. El caso de uso lo filtraba, pero un `if` se salta desde el siguiente endpoint | `organization_id` en la tabla puente y claves foráneas **compuestas** hacia `payments` y `charges`. Igual para `invoices`. Probado por SQL directo, saltándose el servicio |
+| **Clave de idempotencia global y del cliente** | Adivinar la clave de otra organización habría devuelto su pago; reservarlas en masa, una denegación de servicio | Única **por empresa**. Y se separó de la referencia: `reference` la genera el servidor, es opaca y es la que viaja a la pasarela |
+| **Duplicado fiscal** | La barrera contra dos facturas dependía de la disciplina del despachador | La factura `EN_PROCESO` nace dentro de la transacción del webhook: la unicidad de `invoices.payment_id` es la barrera |
+| **`provider` como texto libre** | `Wompi`, `wompi ` y `WOMPI` eran tres filas: tres reenvíos que la unicidad no frenaba | Allowlist cerrada y normalización. Sandbox y producción son cadenas distintas a propósito |
+
+**Un hallazgo estaba desactualizado:** A5 leyó `main.ts` antes de que se añadiera `rawBody: true`. La verificación sí se hace sobre el cuerpo crudo, y el controlador usa `@Req()`, no `@Body()`, así que el `ValidationPipe` global no lo toca. Queda como trampa latente para quien añada un DTO ahí.
+
+### Lo que sigue abierto, y por qué
+
+- **Sin capa de sesión.** Nada puebla `req.actor`; el guard deniega, así que hoy no hay nada expuesto, pero `POST /v1/payments` no es usable hasta que exista autenticación. Depende del proveedor de identidad, que sigue sin decidirse.
+- **Aislamiento estructural en lectura.** Las claves compuestas cubren el flujo de dinero. Para el resto hace falta una extensión de Prisma que exija `organization_id` en toda consulta a tabla con ese campo, o RLS de PostgreSQL. Es el siguiente épico.
+- **Sin límites de abuso.** No hay rate limiting en ninguna capa. Necesita `@nestjs/throttler` con Redis, no en memoria.
+- **Sin ruta de reproceso del webhook.** Si el registro de la entrega se confirma y el procesamiento falla, el reintento legítimo choca con la unicidad y se descarta. Hace falta `claimed_at` y un job de rescate sobre `processed_at IS NULL`.
+- **Sin SAST en CI** y acciones ancladas por etiqueta móvil, no por SHA.
+
+### Lo que A5 marcó BLOCKED y no se construyó
+
+Conexión a un facturador real (exige la resolución DIAN con prefijo y rango autorizado, y decidir quién asigna el consecutivo); verificación pública de certificados; emisión con apariencia legal fuera de desarrollo; **registro manual de pagos** —el camino que salta la firma y la pasarela, y la mayor vía de escalada del flujo de dinero—; despliegue en entorno alcanzable sin sesión ni MFA; y el tratamiento de reversos y contracargos, que no está en el catálogo y requiere decisión de Contabilidad y Jurídica.
+
+Además, una decisión de diseño que conviene fijar antes de que A4 dibuje la pantalla de pago: **el checkout debe ser alojado por la pasarela**. Servir un formulario de tarjeta desde dominio propio cambia el alcance PCI-DSS de SAQ A a SAQ A-EP.
+
 ## Consecuencias
 
 **A favor.** El recorrido completo funciona y está probado hoy. Cuando lleguen las decisiones, lo que falta es escribir dos adaptadores contra un sandbox del proveedor, no diseñar el flujo.

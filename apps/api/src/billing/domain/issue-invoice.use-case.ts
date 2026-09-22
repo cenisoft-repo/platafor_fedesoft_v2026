@@ -51,9 +51,10 @@ export class IssueInvoiceUseCase {
       }));
 
     const resultado = await this.invoicer.issue({
-      /* La misma clave que el pago: reintentar no emite dos facturas ni
-         siquiera si el proveedor recibe la petición dos veces. */
-      idempotencyKey: pago.idempotencyKey,
+      /* La referencia del pago, no la clave del cliente: es del servidor y
+         única globalmente, así que reintentar no emite dos facturas ni
+         siquiera si el facturador recibe la petición dos veces. */
+      idempotencyKey: pago.reference,
       organization: {
         nit: pago.organization.nit,
         nitDv: pago.organization.nitDv,
@@ -67,7 +68,7 @@ export class IssueInvoiceUseCase {
       })),
       total: pago.amount.toString(),
       currency: pago.currency,
-      paymentReference: pago.providerReference ?? pago.idempotencyKey,
+      paymentReference: pago.providerReference ?? pago.reference,
     });
 
     await this.prisma.$transaction(async (tx) => {

@@ -8,7 +8,7 @@ import assert from "node:assert/strict";
 import { Reflector } from "@nestjs/core";
 import { ForbiddenException } from "@nestjs/common";
 import { DenyByDefaultGuard, type ActorContext } from "../src/common/deny-by-default.guard.js";
-import { PERMISSION_KEY, PUBLIC_KEY, grants } from "../src/common/permissions.js";
+import { PERMISSION_KEY, PUBLIC_KEY, SENSITIVE_PERMISSIONS, grants } from "../src/common/permissions.js";
 import { loadEnv } from "../src/config/env.js";
 
 /** Contexto mínimo de Nest, con los metadatos que declararía un decorador. */
@@ -65,8 +65,42 @@ test("grants: comodines y límites", () => {
   assert.equal(grants(["*:read"], "billing:write"), false);
   assert.equal(grants(["billing:read"], "billing:write"), false);
   assert.equal(grants([], "billing:read"), false);
-  /* Un permiso mal formado nunca concede: fallar cerrado también aquí. */
+});
+
+test("un permiso mal formado nunca concede", () => {
+  /* Tres segmentos se partían en dominio `billing` y cualquier `billing:*`
+     los concedía: escalada por una cadena mal formada. */
+  assert.equal(grants(["billing:*"], "billing:payment:refund"), false);
+  assert.equal(grants(["*"], "billing:payment:refund"), false);
   assert.equal(grants(["billing:*"], "billing"), false);
+  assert.equal(grants(["billing:*"], ""), false);
+  assert.equal(grants(["billing:*"], ":read"), false);
+  assert.equal(grants(["billing:*"], "billing:"), false);
+  /* Las mayúsculas no son otra forma del mismo permiso: se rechazan. */
+  assert.equal(grants(["billing:*"], "BILLING:read"), false);
+});
+
+test("ningún comodín concede un permiso sensible", () => {
+  assert.ok(SENSITIVE_PERMISSIONS.size > 0);
+  for (const sensible of SENSITIVE_PERMISSIONS) {
+    const [dominio, accion] = sensible.split(":");
+    assert.equal(grants(["*"], sensible), false, `* no debe conceder ${sensible}`);
+    assert.equal(grants([`${dominio}:*`], sensible), false, `${dominio}:* no debe conceder ${sensible}`);
+    assert.equal(grants([`*:${accion}`], sensible), false, `*:${accion} no debe conceder ${sensible}`);
+    /* Concedido de forma explícita sí funciona: la regla no lo vuelve inútil. */
+    assert.equal(grants([sensible], sensible), true);
+  }
+});
+
+test("el rol gerente de la semilla no alcanza a reembolsar", () => {
+  /* `billing:*` es lo que la semilla da al gerente afiliado. */
+  const gerente = ["organization:read", "organization:update", "billing:*", "certificate:read"];
+  assert.equal(grants(gerente, "billing:read"), true);
+  assert.equal(grants(gerente, "billing:pay"), true);
+  assert.equal(grants(gerente, "billing:refund"), false);
+  assert.equal(grants(gerente, "billing:write-off"), false);
+  assert.equal(grants(gerente, "billing:manual-payment"), false);
+  assert.equal(grants(gerente, "certificate:revoke"), false);
 });
 
 /** Entorno mínimo válido, sobre el que cada prueba quita una pieza. */

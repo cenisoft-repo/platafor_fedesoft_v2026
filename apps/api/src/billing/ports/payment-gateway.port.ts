@@ -60,3 +60,22 @@ export interface PaymentGatewayPort {
 }
 
 export const PAYMENT_GATEWAY = Symbol("PAYMENT_GATEWAY");
+
+/**
+ * Allowlist cerrada de proveedores.
+ *
+ * `provider` es texto libre en la base, y `Wompi`, `wompi ` y `WOMPI` serían
+ * tres filas distintas: tres reenvíos del mismo evento que la unicidad
+ * `(provider, event_id)` no frenaría. Se normaliza y se coteja contra esta
+ * lista antes de tocar nada.
+ *
+ * Sandbox y producción del mismo proveedor son cadenas DISTINTAS a propósito:
+ * los proveedores reutilizan identificadores de evento entre entornos.
+ */
+export const PROVEEDORES = ["sandbox", "wompi", "wompi_sandbox", "epayco", "epayco_sandbox"] as const;
+export type Proveedor = (typeof PROVEEDORES)[number];
+
+export function normalizarProveedor(valor: string): Proveedor | null {
+  const limpio = valor.trim().toLowerCase();
+  return (PROVEEDORES as readonly string[]).includes(limpio) ? (limpio as Proveedor) : null;
+}

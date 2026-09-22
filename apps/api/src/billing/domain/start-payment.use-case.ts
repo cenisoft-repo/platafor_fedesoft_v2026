@@ -1,5 +1,5 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from "@nestjs/common";
-import { randomUUID } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { Prisma } from "@fedesoft/db";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { AuditService } from "../../common/audit.service.js";
@@ -18,6 +18,7 @@ export interface StartPaymentInput {
 
 export interface StartPaymentOutput {
   paymentId: string;
+  /** Opaca y generada por el servidor. Es la que viaja a la pasarela. */
   reference: string;
   amount: string;
   redirectUrl: string;
@@ -62,28 +63,35 @@ export class StartPaymentUseCase {
 
     const clave = input.idempotencyKey ?? `PAY-${randomUUID()}`;
 
-    const existente = await this.prisma.payment.findUnique({ where: { idempotencyKey: clave } });
+    /* La clave de idempotencia es del cliente y única por empresa: la
+       búsqueda va acotada a la organización en sesión. Si fuera global,
+       adivinar la clave de otra empresa devolvería su pago. */
+    const existente = await this.prisma.payment.findUnique({
+      where: {
+        organizationId_idempotencyKey: { organizationId: input.organizationId, idempotencyKey: clave },
+      },
+    });
     if (existente) {
-      if (existente.organizationId !== input.organizationId) {
-        /* La clave la propone el cliente: no puede servir para alcanzar el
-           pago de otra empresa. */
-        throw new BadRequestException("Clave de idempotencia en uso.");
-      }
       const sesion = await this.gateway.createCheckout({
         paymentId: existente.id,
         amount: existente.amount.toString(),
         currency: existente.currency,
-        reference: clave,
+        reference: existente.reference,
         returnUrl: input.returnUrl,
       });
       return {
         paymentId: existente.id,
-        reference: clave,
+        reference: existente.reference,
         amount: existente.amount.toString(),
         redirectUrl: sesion.redirectUrl,
         reused: true,
       };
     }
+
+    /* Referencia opaca: 32 hex sin relación con el NIT, el cargo ni ningún
+       consecutivo. Va a la pasarela y vuelve en el webhook, así que no puede
+       revelar nada ni ser adivinable. */
+    const referencia = `pay_${randomBytes(16).toString("hex")}`;
 
     const pago = await this.prisma.$transaction(async (tx) => {
       const creado = await tx.payment.create({
@@ -94,10 +102,21 @@ export class StartPaymentUseCase {
           provider: this.gateway.name,
           status: "INICIADO",
           idempotencyKey: clave,
-          charges: {
-            create: cargos.map((c) => ({ chargeId: c.id, amount: c.amount })),
-          },
+          reference: referencia,
         },
+      });
+
+      /* Las filas puente se crean aparte, no anidadas: `organizationId` forma
+         parte de la relación compuesta, así que tiene que escribirse de forma
+         explícita. Es la columna que ata pago y cargo a la misma empresa, y
+         si el cargo fuera de otra, la clave foránea rechazaría el INSERT. */
+      await tx.paymentCharge.createMany({
+        data: cargos.map((c) => ({
+          paymentId: creado.id,
+          chargeId: c.id,
+          organizationId: input.organizationId,
+          amount: c.amount,
+        })),
       });
 
       await this.audit.record(tx, {
@@ -119,13 +138,22 @@ export class StartPaymentUseCase {
       paymentId: pago.id,
       amount: total.toString(),
       currency: moneda,
-      reference: clave,
+      reference: referencia,
       returnUrl: input.returnUrl,
     });
 
+    /* La referencia del proveedor se guarda al crear, no al confirmar: así
+       el webhook puede contrastarla en vez de aceptar la que llegue. */
+    if (sesion.providerReference) {
+      await this.prisma.payment.update({
+        where: { id: pago.id },
+        data: { providerReference: sesion.providerReference },
+      });
+    }
+
     return {
       paymentId: pago.id,
-      reference: clave,
+      reference: referencia,
       amount: total.toString(),
       redirectUrl: sesion.redirectUrl,
       reused: false,

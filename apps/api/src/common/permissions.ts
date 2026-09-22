@@ -13,10 +13,47 @@ export const RequirePermission = (permission: string) =>
 export const PUBLIC_KEY = "fedesoft:public";
 export const Public = () => SetMetadata(PUBLIC_KEY, true);
 
-/** `billing:*` cubre `billing:read`; `*` cubre todo. */
+/**
+ * Permisos que ningún comodín satisface.
+ *
+ * Un rol con `billing:*` no debe heredar la capacidad de reembolsar el día
+ * que alguien añada `billing:refund`. Estas acciones mueven dinero, otorgan
+ * privilegios o retractan documentos, y se conceden una por una.
+ */
+export const SENSITIVE_PERMISSIONS: ReadonlySet<string> = new Set([
+  "billing:refund",
+  "billing:write-off",
+  "billing:manual-payment",
+  "certificate:revoke",
+  "parameter:approve",
+  "role:assign",
+  "user:impersonate",
+  "organization:delete",
+]);
+
+/** Exactamente dos segmentos no vacíos, en minúsculas. */
+const FORMATO = /^[a-z][a-z0-9-]*:[a-z][a-z0-9-]*$/;
+
+/**
+ * ¿El conjunto de permisos cubre el exigido?
+ *
+ * `billing:*` cubre `billing:read`; `*:read` cubre `billing:read`; `*` cubre
+ * lo no sensible. Un permiso sensible solo se cubre si está literalmente en
+ * el conjunto.
+ *
+ * El formato se valida antes de nada: sin esto, `billing:payment:refund` se
+ * partía en dominio `billing` y lo concedía cualquier `billing:*`, que es
+ * escalada por una cadena mal formada.
+ */
 export function grants(held: readonly string[], required: string): boolean {
-  if (held.includes("*") || held.includes(required)) return true;
+  if (!FORMATO.test(required)) return false;
+
+  if (held.includes(required)) return true;
+  /* Un permiso sensible no se hereda: ni por `*`, ni por `dominio:*`. */
+  if (SENSITIVE_PERMISSIONS.has(required)) return false;
+
+  if (held.includes("*")) return true;
+
   const [dominio, accion] = required.split(":");
-  if (!dominio || !accion) return false;
   return held.includes(`${dominio}:*`) || held.includes(`*:${accion}`);
 }

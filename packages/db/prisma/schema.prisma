@@ -242,6 +242,7 @@ model Charge {
   payments         PaymentCharge[]
 
   @@unique([organizationId, concept, period])
+  @@unique([id, organizationId], map: "charges_id_org_unique")
   @@index([organizationId, status])
   @@index([dueDate])
   @@map("charges")
@@ -257,9 +258,14 @@ model Payment {
   provider          String        @db.VarChar(40)
   providerReference String?       @map("provider_reference") @db.VarChar(180)
   status            PaymentStatus @default(INICIADO)
-  /// Obligatoria. Dos intentos con la misma clave son el mismo pago, aunque
-  /// lleguen por caminos distintos o repetidos.
-  idempotencyKey    String        @unique @map("idempotency_key") @db.VarChar(120)
+  /// Referencia que viaja a la pasarela y vuelve en el webhook. La genera el
+  /// servidor, es opaca y no adivinable: nunca el NIT, el id de un cargo ni
+  /// un consecutivo. Es por la que el webhook encuentra el pago.
+  reference         String        @unique @db.VarChar(64)
+  /// Del cliente, para que reintentar no cree un segundo pago. Única **por
+  /// empresa**: si fuera global, adivinar la clave de otra organización
+  /// devolvería su pago, y reservarlas sería una denegación de servicio.
+  idempotencyKey    String        @map("idempotency_key") @db.VarChar(120)
   confirmedAt       DateTime?     @map("confirmed_at") @db.Timestamptz(6)
   failureReason     String?       @map("failure_reason") @db.VarChar(300)
   createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -270,20 +276,32 @@ model Payment {
   invoice      Invoice?
 
   @@unique([provider, providerReference])
+  @@unique([organizationId, idempotencyKey])
+  /// Requisito de las claves foráneas compuestas de payment_charges e
+  /// invoices: sin esta unicidad no se puede referenciar el par.
+  @@unique([id, organizationId], map: "payments_id_org_unique")
   @@index([organizationId, status])
   @@map("payments")
 }
 
 /// Un pago puede saldar varios cargos, y un cargo puede recibir varios pagos.
+///
+/// `organizationId` no es una comodidad de consulta: es lo que permite atar
+/// pago y cargo a la MISMA empresa por clave foránea compuesta. Sin él, las
+/// dos claves son independientes y nada impide que un pago salde el cargo de
+/// otra organización —con factura al NIT equivocado—. Un `if` en el servicio
+/// lo evita hasta que alguien escribe el siguiente endpoint.
 model PaymentCharge {
-  paymentId String  @map("payment_id") @db.Uuid
-  chargeId  String  @map("charge_id") @db.Uuid
-  amount    Decimal @db.Decimal(14, 2)
+  paymentId      String  @map("payment_id") @db.Uuid
+  chargeId       String  @map("charge_id") @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  amount         Decimal @db.Decimal(14, 2)
 
-  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Cascade)
-  charge  Charge  @relation(fields: [chargeId], references: [id], onDelete: Restrict)
+  payment Payment @relation(fields: [paymentId, organizationId], references: [id, organizationId], onDelete: Cascade, map: "pc_payment_same_org")
+  charge  Charge  @relation(fields: [chargeId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "pc_charge_same_org")
 
   @@id([paymentId, chargeId])
+  @@index([organizationId])
   @@map("payment_charges")
 }
 
@@ -304,8 +322,13 @@ model Invoice {
   updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  payment      Payment      @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+  /// Compuesta a propósito: una factura no puede salir a nombre de una
+  /// empresa distinta de la que hizo el pago.
+  payment      Payment      @relation(fields: [paymentId, organizationId], references: [id, organizationId], onDelete: Restrict, map: "invoice_payment_same_org")
 
+  /// Requisito de la clave foránea compuesta hacia payments. La unicidad que
+  /// de verdad importa —una factura por pago— la da `paymentId @unique`.
+  @@unique([paymentId, organizationId], map: "invoices_payment_org_unique")
   @@index([organizationId, status])
   @@map("invoices")
 }

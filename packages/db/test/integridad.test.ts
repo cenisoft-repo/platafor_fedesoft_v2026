@@ -79,6 +79,7 @@ test("una factura EMITIDA sin CUFE no entra", async () => {
       amount: new Prisma.Decimal(1000),
       provider: "prueba",
       idempotencyKey: `k-${empresa.id}`,
+      reference: `pay_k${empresa.id.replace(/-/g, "").slice(0, 23)}`,
     },
   });
 
@@ -98,6 +99,7 @@ test("un pago APROBADO exige confirmación del proveedor", async () => {
       amount: new Prisma.Decimal(1000),
       provider: "prueba",
       idempotencyKey: `k2-${empresa.id}`,
+      reference: `pay_m${empresa.id.replace(/-/g, "").slice(0, 23)}`,
     },
   });
 
@@ -123,6 +125,7 @@ test("la misma clave de idempotencia no crea dos pagos", async () => {
       amount: new Prisma.Decimal(500),
       provider: "prueba",
       idempotencyKey: clave,
+      reference: `pay_n${empresa.id.replace(/-/g, "").slice(0, 23)}`,
     },
   });
 
@@ -133,6 +136,7 @@ test("la misma clave de idempotencia no crea dos pagos", async () => {
         amount: new Prisma.Decimal(500),
         provider: "prueba",
         idempotencyKey: clave,
+        reference: `pay_o${empresa.id.replace(/-/g, "").slice(0, 23)}`,
       },
     }),
   );
@@ -177,6 +181,109 @@ test("una empresa no puede tener dos afiliaciones abiertas", async () => {
   // del índice no llega al cliente, así que se verifica el efecto, no la etiqueta.
   assert.match(error, /P2002/);
   assert.match(error, /organization_id/);
+});
+
+test("un pago no puede saldar el cargo de otra empresa, ni por SQL", async () => {
+  const propia = await empresaDePrueba("00020");
+  const ajena = await empresaDePrueba("00021");
+
+  const pago = await prisma.payment.create({
+    data: {
+      organizationId: propia.id,
+      amount: new Prisma.Decimal(1000),
+      provider: "prueba",
+      idempotencyKey: `x-${propia.id}`,
+      reference: `pay_${propia.id.replace(/-/g, "").slice(0, 24)}`,
+    },
+  });
+  const cargoAjeno = await prisma.charge.create({
+    data: {
+      organizationId: ajena.id,
+      concept: "Cuota ajena",
+      period: "2026",
+      amount: new Prisma.Decimal(1000),
+      dueDate: new Date("2026-12-31"),
+    },
+  });
+
+  /* Se intenta por lo bajo, saltándose cualquier caso de uso: es justo lo
+     que haría un endpoint nuevo mal escrito o un script de corrección. */
+  const error = await debeFallar(() =>
+    prisma.paymentCharge.create({
+      data: {
+        paymentId: pago.id,
+        chargeId: cargoAjeno.id,
+        organizationId: propia.id,
+        amount: new Prisma.Decimal(1000),
+      },
+    }),
+  );
+  assert.match(error, /pc_charge_same_org|foreign key|P2003/i);
+
+  // Y tampoco declarando la organización del cargo ajeno.
+  const alRevés = await debeFallar(() =>
+    prisma.paymentCharge.create({
+      data: {
+        paymentId: pago.id,
+        chargeId: cargoAjeno.id,
+        organizationId: ajena.id,
+        amount: new Prisma.Decimal(1000),
+      },
+    }),
+  );
+  assert.match(alRevés, /pc_payment_same_org|foreign key|P2003/i);
+});
+
+test("una factura no puede salir a nombre de otra empresa", async () => {
+  const propia = await empresaDePrueba("00022");
+  const ajena = await empresaDePrueba("00023");
+  const pago = await prisma.payment.create({
+    data: {
+      organizationId: propia.id,
+      amount: new Prisma.Decimal(1000),
+      provider: "prueba",
+      idempotencyKey: `y-${propia.id}`,
+      reference: `pay_b${propia.id.replace(/-/g, "").slice(0, 23)}`,
+    },
+  });
+
+  const error = await debeFallar(() =>
+    prisma.invoice.create({ data: { organizationId: ajena.id, paymentId: pago.id } }),
+  );
+  assert.match(error, /invoice_payment_same_org|foreign key|P2003/i);
+});
+
+test("la clave de idempotencia es única por empresa, no global", async () => {
+  const a = await empresaDePrueba("00024");
+  const b = await empresaDePrueba("00025");
+  const clave = "misma-clave-para-las-dos";
+
+  await prisma.payment.create({
+    data: {
+      organizationId: a.id, amount: new Prisma.Decimal(100), provider: "prueba",
+      idempotencyKey: clave, reference: `pay_c${a.id.replace(/-/g, "").slice(0, 23)}`,
+    },
+  });
+
+  // Otra empresa puede usar la misma clave: no se la puede reservar nadie.
+  const deB = await prisma.payment.create({
+    data: {
+      organizationId: b.id, amount: new Prisma.Decimal(100), provider: "prueba",
+      idempotencyKey: clave, reference: `pay_d${b.id.replace(/-/g, "").slice(0, 23)}`,
+    },
+  });
+  assert.equal(deB.idempotencyKey, clave);
+
+  // Pero dentro de la misma empresa sigue siendo única.
+  const error = await debeFallar(() =>
+    prisma.payment.create({
+      data: {
+        organizationId: a.id, amount: new Prisma.Decimal(100), provider: "prueba",
+        idempotencyKey: clave, reference: `pay_e${a.id.replace(/-/g, "").slice(0, 23)}`,
+      },
+    }),
+  );
+  assert.match(error, /P2002/);
 });
 
 test("scopeToOrganization no deja armar una consulta sin empresa", async () => {
