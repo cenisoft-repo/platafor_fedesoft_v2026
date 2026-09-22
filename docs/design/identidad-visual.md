@@ -1,6 +1,6 @@
 # Identidad visual — tokens y reglas de UI del portal
 
-**Versión 0.2 · 22 de septiembre de 2026 · Fuente: manual de marca oficial de Fedesoft**
+**Versión 0.3 · 22 de septiembre de 2026 · Fuente: manual de marca oficial de Fedesoft**
 
 Reemplaza la v0.1, que trabajaba con valores estimados del logo en pantalla. **Todos los colores y tipografías de este documento provienen del manual de marca**; lo único derivado se señala como tal.
 
@@ -63,6 +63,19 @@ Usos: delante de etiquetas de sección, indicador de pestaña activa, borde supe
 
 Los semánticos son independientes del acento de marca y no se sustituyen por complementarios del manual: su función es comunicar estado, no identidad.
 
+### Regla medida: advertencia y error nunca se distinguen solo por color
+
+El ámbar `#8A5A10` y el rojo `#C62828` se separan **ΔE 3,8 con deuteranopia** y **14,3 con visión normal** —por debajo del piso de 15—. Son dos colores que buena parte de la gente no puede diferenciar, y quien sí puede los confunde a primera vista.
+
+No es motivo para cambiarlos: son los valores del manual y funcionan como texto. Es motivo para no apoyar información en ellos.
+
+- **Todo estado lleva ícono y etiqueta**, no solo color. Los `Chip` del portal ya lo hacen.
+- **Prohibida la barra apilada** que separe advertencia de error por color. Se usan filas separadas, cada una con su ícono, su etiqueta y su cifra.
+- **Para magnitud dentro de un mismo estado** —por ejemplo la antigüedad de la mora— se usa un solo tono graduado de claro a oscuro, nunca colores distintos por tramo.
+- La graduación se describe como «más intenso», no «más oscuro»: en tema oscuro el paso fuerte es el más claro.
+
+Medido con el validador de paletas del método de visualización de datos; el criterio es ΔE ≥ 8 para daltonismo y ≥ 15 para visión normal.
+
 ## 6. Tema oscuro
 
 | Token | Claro | Oscuro |
@@ -82,6 +95,6 @@ Los tokens viven en `src/app/globals.css` del prototipo (`cenisoft-repo/fedesoft
 ## 8. Pendientes para cerrar la identidad
 
 1. **Logo en vectores**: horizontal, vertical, negativo y monocromo, más el bloqueo conjunto `fedesoft | cenisoft` que aparece en el manual.
-2. **Referente de menús** que Cenisoft dejó en su carpeta de recursos — aún no recibido.
+2. **Paleta de visualización de datos**: la serie categórica del manual (`#5c3cc8 · #876ddc · #cb6ce6`) aún no se ha validado para daltonismo. Hacerlo antes de la primera gráfica con más de dos series.
 3. **Iconografía**: biblioteca base (hoy Lucide) y validación con el manual.
 4. **Estilo fotográfico** para directorio, comunidades y la página pública, que hoy se resuelve con un campo generativo.
