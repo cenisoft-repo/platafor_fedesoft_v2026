@@ -5,7 +5,8 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
 
 ## Estado del proyecto
 
-- **Fase actual:** 0 · Fundación. Aún no hay código de aplicación; el repositorio contiene el contexto rector.
+- **Fase actual:** 0 · Fundación **en curso** (EPIC-00 entregado). El monorepo existe: `apps/api`, `packages/db`, `packages/config`, `infra/docker` y CI.
+- **Cómo levantarlo y la puerta de calidad:** `README.md`. Antes de tocar código: `pnpm install && pnpm db:migrate`.
 - **Plan operativo:** `docs/00-plan-de-ejecucion.md` (qué, cómo, cuándo, agentes y modelo). Es el índice de trabajo.
 - **Documentos rectores (fuente de verdad documental):**
   - `docs/base/01-arquitectura-plataforma.md` — qué debe hacer la plataforma: 2 ejes, 3 capas, 9 módulos, criterios de evaluación.
@@ -15,6 +16,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
   - `docs/03-arquitectura-de-informacion.md` — mapa de navegación, inventario de pantallas por rol y recorridos críticos del portal del afiliado.
   - `docs/04-prompt-prototipo-visual.md` — prompt autocontenido para construir el prototipo visual navegable (sin backend) destinado a la presentación ejecutiva.
   - `docs/06-estado-vs-alcance.md` — qué demuestra hoy el prototipo frente a los nueve módulos exigidos, y la ruta en tres etapas para cerrar la brecha.
+  - `docs/adr/ADR-006-fundacion-monorepo-y-datos.md` — qué se construyó en EPIC-00 y por qué las invariantes viven en la base de datos.
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
@@ -50,6 +52,8 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
 - No aceptar una historia sin pruebas proporcionales al riesgo.
 - No declarar "terminado" si lint, typecheck, test, build y migraciones no se ejecutaron en un entorno limpio.
 - No tocar módulos fuera del alcance de la tarea "para arreglar rápido": crear una tarea para el agente dueño del dominio.
+- No exponer un endpoint sin `@RequirePermission` o `@Public`: el guard global deniega, y quitarlo no es una opción.
+- No debilitar una invariante de la base de datos para que pase una prueba. Si estorba, discutir la regla en un ADR.
 
 ## Protocolo por tarea (resumen del harness, sección 18 del documento base)
 
@@ -80,9 +84,21 @@ Cuándo invocar cada uno, en qué orden y con qué modelo: `docs/00-plan-de-ejec
 - Nada se publica bajo el alcance o la cuenta de otro proyecto ajeno a Fedesoft/Cenisoft.
 - El dominio definitivo y el responsable del DNS son la decisión pendiente `RQ-FED-009` (`docs/02-catalogo-de-requerimientos.md`, Anexo A).
 
+## Dónde vive cada cosa
+
+| Capa | Ruta | Nota |
+|---|---|---|
+| API | `apps/api` | NestJS. `/v1` afiliado, `/admin/v1` consola. Guard global de denegar por defecto |
+| Datos | `packages/db` | Esquema Prisma, migraciones forward-only, semilla sintética, pruebas de integridad |
+| Config compartida | `packages/config` | `tsconfig.base.json` y ESLint base |
+| Infraestructura local | `infra/docker` | PostgreSQL, Redis, almacenamiento S3 |
+| Prototipo visual | `cenisoft-repo/fedesoft` | Repositorio aparte: otra pieza, otro ciclo de vida |
+
+Las reglas de negocio configurables son filas de `Parameter`/`ParameterVersion`, nunca constantes. La regla de "al día" ya existe ahí como `afiliacion.dias_gracia` marcada provisional.
+
 ## Convenciones
 
-- Monorepo con pnpm workspaces + Turborepo (se crea en EPIC-00). Estructura objetivo: sección 9 de `docs/base/02-documento-base-desarrollo.md`.
+- Monorepo con pnpm workspaces + Turborepo. Estructura objetivo: sección 9 de `docs/base/02-documento-base-desarrollo.md` (desviación documentada en ADR-006: las migraciones viven en `packages/db/prisma`).
 - Commits: Conventional Commits en inglés (`feat(billing): …`, `fix(identity): …`, `docs: …`, `chore(ci): …`).
 - Ramas: `feat/EPIC-xx-descripcion-corta`; integración a `main` solo por PR con checks verdes.
 - Datos de prueba sintéticos; nunca copias crudas de producción en entornos no productivos.

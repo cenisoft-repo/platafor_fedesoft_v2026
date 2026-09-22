@@ -2,7 +2,7 @@
 
 Plataforma que unifica en un solo lugar todo lo que un afiliado de Fedesoft hace con la federación: perfil y afiliación, estado de cuenta y pago con factura electrónica DIAN, certificado y sello, formación (TrainingLAB / TIC Talks), comunidades, directorio e insights, verticales sectoriales, proyectos Cenisoft y cuenta estratégica (KAM).
 
-**Estado:** Fase 0 · Fundación. El repositorio contiene por ahora el contexto rector del proyecto.
+**Estado:** Fase 0 · Fundación **en curso**. El repositorio contiene el contexto rector y la primera capa de plataforma: monorepo, modelo de datos con sus invariantes, API con autorización por defecto y CI.
 
 | Para… | Leer |
 |---|---|
@@ -17,3 +17,40 @@ Plataforma que unifica en un solo lugar todo lo que un afiliado de Fedesoft hace
 | Decisiones de arquitectura | [`docs/adr/`](docs/adr/) |
 | Auditoría del ecosistema web actual | [`docs/audit/`](docs/audit/) |
 | Identidad visual y tokens de UI | [`docs/design/identidad-visual.md`](docs/design/identidad-visual.md) |
+| Qué demuestra el prototipo frente al alcance | [`docs/06-estado-vs-alcance.md`](docs/06-estado-vs-alcance.md) |
+
+---
+
+## Levantar el proyecto
+
+Requisitos: Node 22 (`.nvmrc`), pnpm 10.33, Docker.
+
+```bash
+pnpm install
+pnpm infra:up                      # PostgreSQL, Redis y almacenamiento S3
+cp packages/db/.env.example packages/db/.env
+cp apps/api/.env.example apps/api/.env
+pnpm db:migrate && pnpm db:seed
+pnpm --filter @fedesoft/api dev    # http://localhost:3000/docs
+```
+
+Comprobación de salud: `/health/live` y `/health/ready`.
+
+### La puerta de calidad
+
+```bash
+pnpm lint && pnpm typecheck && pnpm test && pnpm build
+```
+
+Es lo mismo que corre el CI, con las migraciones sobre una base vacía. Nada se declara terminado sin que estos cinco pasen (`CLAUDE.md`, reglas no negociables).
+
+### Estructura
+
+```text
+apps/api/        API NestJS · /v1 (afiliado) y /admin/v1 (consola)
+packages/db/     Esquema Prisma, migraciones, semilla e invariantes
+packages/config/ tsconfig y ESLint compartidos
+infra/docker/    Servicios locales
+```
+
+**Los secretos nunca entran al repositorio.** Cada paquete trae su `.env.example`; el `.env` real está en `.gitignore`.

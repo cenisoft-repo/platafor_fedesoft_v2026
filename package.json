@@ -1,0 +1,22 @@
+{
+  "name": "fedesoft-portal",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "engines": { "node": ">=22.0.0" },
+  "scripts": {
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "test": "turbo run test",
+    "db:generate": "pnpm --filter @fedesoft/db generate",
+    "db:migrate": "pnpm --filter @fedesoft/db migrate",
+    "db:seed": "pnpm --filter @fedesoft/db seed",
+    "infra:up": "docker compose -f infra/docker/compose.yml up -d",
+    "infra:down": "docker compose -f infra/docker/compose.yml down"
+  },
+  "devDependencies": {
+    "turbo": "2.6.1",
+    "typescript": "5.7.2"
+  }
+}

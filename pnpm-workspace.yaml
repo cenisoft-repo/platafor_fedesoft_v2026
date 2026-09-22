@@ -1,0 +1,11 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+# Estos paquetes necesitan ejecutar scripts de instalación (descarga de motores
+# y binarios). Se listan explícitamente en vez de permitirlos todos.
+onlyBuiltDependencies:
+  - "@prisma/client"
+  - "@prisma/engines"
+  - prisma
+  - esbuild

@@ -1,0 +1,102 @@
+name: CI
+
+on:
+  push:
+    branches: ["main", "gestorfelipe/**", "feat/**"]
+  pull_request:
+    branches: ["main"]
+
+# Un push nuevo cancela la corrida anterior de la misma rama.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+# Permisos mínimos: el workflow solo necesita leer el código.
+permissions:
+  contents: read
+
+env:
+  DATABASE_URL: postgresql://fedesoft:fedesoft_ci@localhost:5432/fedesoft_test?schema=public
+
+jobs:
+  verificar:
+    name: Lint · typecheck · pruebas · build · migraciones
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: fedesoft
+          POSTGRES_PASSWORD: fedesoft_ci
+          POSTGRES_DB: fedesoft_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U fedesoft -d fedesoft_test"
+          --health-interval 5s --health-timeout 5s --health-retries 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      # Las migraciones corren sobre una base vacía: si una no aplica desde
+      # cero, se entera el CI y no el despliegue.
+      - name: Migraciones en entorno limpio
+        run: pnpm db:migrate
+
+      - name: Semilla
+        run: pnpm db:seed
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Pruebas
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  seguridad:
+    name: Dependencias y secretos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - name: Instalar dependencias
+        run: pnpm install --frozen-lockfile
+
+      # Falla con vulnerabilidades altas o críticas. Las moderadas se reportan.
+      - name: Auditoría de dependencias
+        run: pnpm audit --audit-level high
+
+      - name: Escaneo de secretos
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,0 +1,44 @@
+# Infraestructura local. Nada de esto va a producción tal cual: ahí los datos
+# viven en servicios gestionados con respaldo y cifrado en reposo.
+name: fedesoft-portal
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: fedesoft
+      POSTGRES_PASSWORD: fedesoft_local
+      POSTGRES_DB: fedesoft_dev
+    ports: ["5432:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U fedesoft -d fedesoft_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports: ["6379:6379"]
+    volumes: ["redisdata:/data"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Almacenamiento compatible con S3, para que el código no dependa de AWS.
+  minio:
+    image: minio/minio:latest
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: fedesoft
+      MINIO_ROOT_PASSWORD: fedesoft_local
+    ports: ["9000:9000", "9001:9001"]
+    volumes: ["miniodata:/data"]
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

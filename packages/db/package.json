@@ -1,0 +1,29 @@
+{
+  "name": "@fedesoft/db",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": { ".": { "types": "./dist/index.d.ts", "default": "./dist/index.js" } },
+  "scripts": {
+    "generate": "prisma generate",
+    "migrate": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev",
+    "seed": "tsx prisma/seed.ts",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src prisma",
+    "test": "tsx --test test/*.test.ts"
+  },
+  "dependencies": { "@prisma/client": "6.18.0" },
+  "devDependencies": {
+    "@fedesoft/config": "workspace:*",
+    "prisma": "6.18.0",
+    "tsx": "4.21.1",
+    "typescript": "5.7.2",
+    "eslint": "9.39.1",
+    "@types/node": "22.10.2"
+  },
+  "prisma": { "seed": "tsx prisma/seed.ts" }
+}
