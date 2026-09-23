@@ -28,9 +28,15 @@ function contexto(meta: Record<string, unknown>, actor?: ActorContext) {
 
 const GERENTE: ActorContext = {
   userId: "u1",
+  sessionId: "s1",
   organizationId: "o1",
+  roleKey: "gerente",
   permissions: ["billing:*", "organization:read"],
   internal: false,
+  mfaRequired: false,
+  mfaSatisfied: false,
+  segment: "MIPYME",
+  membershipStatus: "AL_DIA",
 };
 
 test("un endpoint sin permiso declarado se deniega", () => {
@@ -107,6 +113,8 @@ test("el rol gerente de la semilla no alcanza a reembolsar", () => {
 const ENV_BASE = {
   DATABASE_URL: "postgresql://u:p@h:5432/d",
   PAYMENT_WEBHOOK_SECRET: "x".repeat(32),
+  IDENTITY_PROVIDER: "stub",
+  SESSION_COOKIE_SECURE: "false",
 } as unknown as NodeJS.ProcessEnv;
 
 test("el entorno inválido impide arrancar", () => {

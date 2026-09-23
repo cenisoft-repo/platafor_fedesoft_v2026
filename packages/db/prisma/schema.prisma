@@ -99,24 +99,30 @@ enum OutboxStatus {
   FALLIDO
 }
 
+enum SessionStatus {
+  ACTIVA
+  REVOCADA
+  EXPIRADA
+}
+
 /* ─────────────────────────────── Núcleo ─────────────────────────────── */
 
 model Organization {
-  id         String             @id @default(uuid()) @db.Uuid
+  id        String             @id @default(uuid()) @db.Uuid
   /// NIT sin puntos ni guion, con dígito de verificación aparte: un NIT es
   /// una identidad, y escribirlo de dos formas crearía dos empresas.
-  nit        String             @unique @db.VarChar(15)
-  nitDv      String             @map("nit_dv") @db.Char(1)
-  legalName  String             @map("legal_name") @db.VarChar(300)
-  tradeName  String?            @map("trade_name") @db.VarChar(300)
-  segment    Segment
-  status     OrganizationStatus @default(PROSPECTO)
-  employees  Int?
-  city       String?            @db.VarChar(120)
-  sector     String?            @db.VarChar(180)
-  website    String?            @db.VarChar(300)
-  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  nit       String             @unique @db.VarChar(15)
+  nitDv     String             @map("nit_dv") @db.Char(1)
+  legalName String             @map("legal_name") @db.VarChar(300)
+  tradeName String?            @map("trade_name") @db.VarChar(300)
+  segment   Segment
+  status    OrganizationStatus @default(PROSPECTO)
+  employees Int?
+  city      String?            @db.VarChar(120)
+  sector    String?            @db.VarChar(180)
+  website   String?            @db.VarChar(300)
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   contacts          Contact[]
   memberships       Membership[]
@@ -126,6 +132,7 @@ model Organization {
   certificates      Certificate[]
   organizationUsers OrganizationUser[]
   auditEvents       AuditEvent[]
+  sessions          Session[]
 
   @@index([status])
   @@index([segment])
@@ -155,8 +162,9 @@ model Contact {
 model User {
   id          String     @id @default(uuid()) @db.Uuid
   email       String     @unique @db.VarChar(320)
-  /// Sujeto del proveedor OIDC. La identidad es intercambiable (ADR-002), así
-  /// que aquí no vive ninguna contraseña ni credencial.
+  /// En desuso desde ADR-008: la identidad federada vive en UserIdentity, que
+  /// guarda emisor y sujeto por separado. La columna se retira en una
+  /// migración posterior, cuando ningún código la lea (expand/contract).
   authSubject String?    @unique @map("auth_subject") @db.VarChar(255)
   status      UserStatus @default(INVITADO)
   lastLoginAt DateTime?  @map("last_login_at") @db.Timestamptz(6)
@@ -164,6 +172,8 @@ model User {
   updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organizationUsers OrganizationUser[]
+  identities        UserIdentity[]
+  sessions          Session[]
 
   @@map("users")
 }
@@ -174,6 +184,10 @@ model Role {
   name        String   @db.VarChar(120)
   /// Un rol interno pertenece a Fedesoft; uno externo, a una empresa afiliada.
   internal    Boolean  @default(false)
+  /// Exige que la sesión traiga segundo factor acreditado por el proveedor de
+  /// identidad (ADR-008). Es una propiedad del rol, no un parámetro de
+  /// negocio: describe qué es el rol, no una regla que Fedesoft ajusta.
+  mfaRequired Boolean  @default(false) @map("mfa_required")
   permissions String[]
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
@@ -223,19 +237,19 @@ model Membership {
 /* ───────────────────────── Cartera y facturación ───────────────────── */
 
 model Charge {
-  id             String       @id @default(uuid()) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  concept        String       @db.VarChar(240)
-  period         String       @db.VarChar(20)
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @map("organization_id") @db.Uuid
+  concept            String       @db.VarChar(240)
+  period             String       @db.VarChar(20)
   /// Decimal, nunca punto flotante: el dinero no se redondea por accidente.
-  amount         Decimal      @db.Decimal(14, 2)
-  currency       String       @default("COP") @db.Char(3)
-  dueDate        DateTime     @map("due_date") @db.Date
-  status         ChargeStatus @default(PENDIENTE)
+  amount             Decimal      @db.Decimal(14, 2)
+  currency           String       @default("COP") @db.Char(3)
+  dueDate            DateTime     @map("due_date") @db.Date
+  status             ChargeStatus @default(PENDIENTE)
   /// Tarifa que lo originó, para poder explicar de dónde salió el monto.
-  parameterVersionId String?  @map("parameter_version_id") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  parameterVersionId String?      @map("parameter_version_id") @db.Uuid
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   parameterVersion ParameterVersion? @relation(fields: [parameterVersionId], references: [id], onDelete: SetNull)
@@ -306,20 +320,20 @@ model PaymentCharge {
 }
 
 model Invoice {
-  id             String        @id @default(uuid()) @db.Uuid
-  organizationId String        @map("organization_id") @db.Uuid
-  paymentId      String        @unique @map("payment_id") @db.Uuid
-  number         String?       @unique @db.VarChar(40)
+  id              String        @id @default(uuid()) @db.Uuid
+  organizationId  String        @map("organization_id") @db.Uuid
+  paymentId       String        @unique @map("payment_id") @db.Uuid
+  number          String?       @unique @db.VarChar(40)
   /// Código Único de Factura Electrónica. Nulo mientras la DIAN no responda:
   /// una factura sin CUFE no está emitida, y el estado debe poder decirlo.
-  cufe           String?       @unique @db.VarChar(96)
-  status         InvoiceStatus @default(EN_PROCESO)
-  issuedAt       DateTime?     @map("issued_at") @db.Timestamptz(6)
+  cufe            String?       @unique @db.VarChar(96)
+  status          InvoiceStatus @default(EN_PROCESO)
+  issuedAt        DateTime?     @map("issued_at") @db.Timestamptz(6)
   /// Respuesta cruda del facturador, para poder auditar y reconciliar.
-  providerPayload Json?        @map("provider_payload")
-  rejectionReason String?      @map("rejection_reason") @db.VarChar(500)
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  providerPayload Json?         @map("provider_payload")
+  rejectionReason String?       @map("rejection_reason") @db.VarChar(500)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   /// Compuesta a propósito: una factura no puede salir a nombre de una
@@ -334,17 +348,17 @@ model Invoice {
 }
 
 model Certificate {
-  id             String            @id @default(uuid()) @db.Uuid
-  organizationId String            @map("organization_id") @db.Uuid
-  folio          String            @unique @db.VarChar(40)
+  id                 String            @id @default(uuid()) @db.Uuid
+  organizationId     String            @map("organization_id") @db.Uuid
+  folio              String            @unique @db.VarChar(40)
   /// Retrato del estado en el momento de emitir: qué decía la afiliación,
   /// bajo qué regla y con qué vigencia. El PDF debe poder reconstruirse.
-  membershipSnapshot Json          @map("membership_snapshot")
-  status         CertificateStatus @default(VIGENTE)
-  issuedAt       DateTime          @default(now()) @map("issued_at") @db.Timestamptz(6)
-  validUntil     DateTime          @map("valid_until") @db.Date
-  fileKey        String?           @map("file_key") @db.VarChar(400)
-  revokedAt      DateTime?         @map("revoked_at") @db.Timestamptz(6)
+  membershipSnapshot Json              @map("membership_snapshot")
+  status             CertificateStatus @default(VIGENTE)
+  issuedAt           DateTime          @default(now()) @map("issued_at") @db.Timestamptz(6)
+  validUntil         DateTime          @map("valid_until") @db.Date
+  fileKey            String?           @map("file_key") @db.VarChar(400)
+  revokedAt          DateTime?         @map("revoked_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
@@ -483,4 +497,86 @@ model AuditEvent {
   @@index([organizationId, createdAt])
   @@index([objectType, objectId])
   @@map("audit_events")
+}
+
+/* ───────────────────────── Identidad y sesión ───────────────────────── */
+
+/// Vínculo con el proveedor de identidad (ADR-008). Emisor y sujeto van en
+/// columnas separadas: es lo que permite cambiar de proveedor —o convivir con
+/// dos durante una migración— sin perder a quién pertenece la cuenta.
+/// Aquí no vive ninguna credencial: la autenticación es del proveedor.
+model UserIdentity {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  issuer    String   @db.VarChar(255)
+  subject   String   @db.VarChar(255)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([issuer, subject])
+  @@index([userId])
+  @@map("user_identities")
+}
+
+/// Sesión del portal. El navegador lleva un identificador opaco de 256 bits;
+/// aquí solo se guarda su hash, de modo que una copia de esta tabla no permite
+/// suplantar a nadie. No hay JWT con permisos: un token autocontenido no se
+/// revoca a tiempo, y quitar un rol debe sentirse en la petición siguiente.
+model Session {
+  id                   String        @id @default(uuid()) @db.Uuid
+  userId               String        @map("user_id") @db.Uuid
+  /// SHA-256 del identificador de sesión. Nunca el valor en claro.
+  tokenHash            String        @unique @map("token_hash") @db.Char(64)
+  /// SHA-256 del token anti-CSRF que acompaña a los verbos mutantes.
+  csrfTokenHash        String        @map("csrf_token_hash") @db.Char(64)
+  /// Empresa sobre la que opera la sesión. Sale de aquí y de ningún otro
+  /// lugar: jamás del cuerpo de una petición.
+  activeOrganizationId String?       @map("active_organization_id") @db.Uuid
+  status               SessionStatus @default(ACTIVA)
+  /// Momento en que el proveedor acreditó el segundo factor. Nulo significa
+  /// que esta sesión no lo tiene, no que el usuario no lo haya enrolado.
+  mfaSatisfiedAt       DateTime?     @map("mfa_satisfied_at") @db.Timestamptz(6)
+  issuedAt             DateTime      @default(now()) @map("issued_at") @db.Timestamptz(6)
+  expiresAt            DateTime      @map("expires_at") @db.Timestamptz(6)
+  lastSeenAt           DateTime      @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  revokedAt            DateTime?     @map("revoked_at") @db.Timestamptz(6)
+  revokedReason        String?       @map("revoked_reason") @db.VarChar(120)
+  ipAddress            String?       @map("ip_address") @db.VarChar(64)
+  userAgent            String?       @map("user_agent") @db.VarChar(300)
+
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeOrganization Organization? @relation(fields: [activeOrganizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Intento de inicio de sesión en curso. Guarda el estado que OIDC exige de un
+/// solo uso —`state`, `nonce` y el verificador PKCE— del lado del servidor,
+/// porque un `state` que viaje solo en el navegador no prueba nada.
+model AuthTransaction {
+  id           String    @id @default(uuid()) @db.Uuid
+  /// SHA-256 del `state`. Se consume al canjear el código y no se reutiliza.
+  stateHash    String    @unique @map("state_hash") @db.Char(64)
+  /// SHA-256 de un secreto que viaja en cookie durante el login. Ata la vuelta
+  /// del proveedor al navegador que la inició: sin esto, un atacante puede
+  /// hacer que la víctima complete *su* login y quedarse operando dentro de la
+  /// sesión del atacante sin notarlo.
+  bindingHash  String    @map("binding_hash") @db.Char(64)
+  nonce        String    @db.VarChar(120)
+  codeVerifier String    @map("code_verifier") @db.VarChar(200)
+  /// A dónde vuelve el navegador después del login. Validada contra la lista
+  /// de destinos permitidos antes de escribirse: aquí no entra un destino
+  /// arbitrario, o el login sería un redirector abierto.
+  returnTo     String    @map("return_to") @db.VarChar(500)
+  /// Se pidió segundo factor al proveedor en esta transacción.
+  mfaRequested Boolean   @default(false) @map("mfa_requested")
+  consumedAt   DateTime? @map("consumed_at") @db.Timestamptz(6)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("auth_transactions")
 }

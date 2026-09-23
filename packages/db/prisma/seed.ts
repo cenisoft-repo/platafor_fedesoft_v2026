@@ -9,6 +9,9 @@ import { PrismaClient, Segment } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+/* `mfaRequired` sigue a `internal`: quien opera por dentro entra con segundo
+   factor (ADR-008). Es una columna y no una constante para que una excepción
+   futura sea una fila, no un despliegue. */
 const ROLES = [
   { key: "super-admin", name: "Super Admin Fedesoft", internal: true, permissions: ["*"] },
   { key: "operaciones", name: "Operaciones Fedesoft", internal: true, permissions: ["affiliation:*", "billing:read", "billing:reconcile", "organization:*", "training:*"] },
@@ -29,7 +32,8 @@ const TARIFAS_2026 = [
 
 async function main() {
   for (const rol of ROLES) {
-    await prisma.role.upsert({ where: { key: rol.key }, update: rol, create: rol });
+    const fila = { ...rol, mfaRequired: rol.internal };
+    await prisma.role.upsert({ where: { key: rol.key }, update: fila, create: fila });
   }
 
   const parametro = await prisma.parameter.upsert({
@@ -130,9 +134,74 @@ async function main() {
     },
   });
 
+  await sembrarAccesos(empresa.id);
+
   process.stdout.write(
-    `Semilla lista: ${ROLES.length} roles, 2 parámetros versionados, 1 empresa con afiliación y cargo.\n`,
+    `Semilla lista: ${ROLES.length} roles, 2 parámetros versionados, 1 empresa con afiliación y cargo, 3 usuarios con acceso.\n`,
   );
+}
+
+/**
+ * Personas que pueden entrar al portal en desarrollo.
+ *
+ * El vínculo con el proveedor de identidad se siembra contra el proveedor de
+ * desarrollo (`apps/api/src/identity/adapters/stub-identity-provider.adapter.ts`).
+ * Con un proveedor real, esta tabla la llena el primer inicio de sesión: aquí
+ * está para que `pnpm db:seed` deje el entorno listo para entrar.
+ */
+const EMISOR_DE_DESARROLLO = "urn:fedesoft:proveedor-de-desarrollo";
+
+async function sembrarAccesos(organizationId: string): Promise<void> {
+  /* La propia federación también es una organización: los perfiles internos
+     cuelgan de ella. El NIT es sintético; el real lo aporta Fedesoft. */
+  const fedesoft = await prisma.organization.upsert({
+    where: { nit: "900000001" },
+    update: {},
+    create: {
+      nit: "900000001",
+      nitDv: "0",
+      legalName: "Fedesoft — entorno de desarrollo",
+      segment: Segment.GRANDE,
+      status: "ACTIVA",
+      city: "Bogotá D.C.",
+    },
+  });
+
+  const accesos = [
+    { email: "camilo.restrepo@datalabsandina.co", rol: "gerente", organizationId },
+    { email: "diana.salazar@datalabsandina.co", rol: "talento", organizationId },
+    { email: "operaciones@fedesoft.test", rol: "operaciones", organizationId: fedesoft.id },
+  ];
+
+  for (const acceso of accesos) {
+    const rol = await prisma.role.findUniqueOrThrow({ where: { key: acceso.rol } });
+    const usuario = await prisma.user.upsert({
+      where: { email: acceso.email },
+      update: { status: "ACTIVO" },
+      create: { email: acceso.email, status: "ACTIVO" },
+    });
+
+    await prisma.userIdentity.upsert({
+      where: { issuer_subject: { issuer: EMISOR_DE_DESARROLLO, subject: acceso.email } },
+      update: {},
+      create: { userId: usuario.id, issuer: EMISOR_DE_DESARROLLO, subject: acceso.email },
+    });
+
+    const contacto = await prisma.contact.findUnique({
+      where: { organizationId_email: { organizationId: acceso.organizationId, email: acceso.email } },
+    });
+
+    await prisma.organizationUser.upsert({
+      where: { organizationId_userId: { organizationId: acceso.organizationId, userId: usuario.id } },
+      update: { roleId: rol.id, contactId: contacto?.id ?? null },
+      create: {
+        organizationId: acceso.organizationId,
+        userId: usuario.id,
+        roleId: rol.id,
+        contactId: contacto?.id ?? null,
+      },
+    });
+  }
 }
 
 main()

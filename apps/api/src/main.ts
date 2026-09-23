@@ -1,8 +1,14 @@
 import "reflect-metadata";
+/* Carga `apps/api/.env` en desarrollo. En producción no hay archivo y las
+   variables vienen del entorno del despliegue: `dotenv` no pisa nada que ya
+   esté definido, así que el orden es seguro. */
+import "dotenv/config";
 import { NestFactory } from "@nestjs/core";
 import { Logger, ValidationPipe, VersioningType } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import type { NestExpressApplication } from "@nestjs/platform-express";
 import helmet from "helmet";
+import cookieParser from "cookie-parser";
 import { AppModule } from "./app.module.js";
 import { loadEnv } from "./config/env.js";
 
@@ -10,9 +16,21 @@ async function bootstrap(): Promise<void> {
   const env = loadEnv();
   /* rawBody: sin el cuerpo original no hay firma verificable. Reserializar
      el JSON cambia los bytes y toda firma HMAC falla. */
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+  });
+
+  /* Detrás de un balanceador, sin esto todas las peticiones llegan con la IP
+     del ingress: el límite de tasa se vuelve un cupo compartido y la
+     auditoría pierde el dato. El número de saltos se declara, no se asume. */
+  if (env.TRUSTED_PROXY_HOPS > 0) {
+    app.set("trust proxy", env.TRUSTED_PROXY_HOPS);
+  }
 
   app.use(helmet());
+  /* La sesión viaja en cookie; sin esto no hay de dónde leerla. */
+  app.use(cookieParser());
 
   /* Las rutas del afiliado viven en /v1 y las internas en /admin/v1. La
      separación es de URI, no solo de permiso: facilita firewall y auditoría. */

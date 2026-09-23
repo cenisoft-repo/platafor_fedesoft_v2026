@@ -26,10 +26,20 @@ async function debeFallar(fn: () => Promise<unknown>): Promise<string> {
   assert.fail("La operación debía fallar y pasó.");
 }
 
+/**
+ * Marca de la corrida.
+ *
+ * Los identificadores de estas pruebas son únicos en la base, así que con
+ * valores fijos la segunda ejecución sobre la misma base fallaba por colisión
+ * y parecía una regresión. En CI la base nace vacía y no se notaba; en local,
+ * sí.
+ */
+const CORRIDA = String(Math.floor(Math.random() * 9000) + 1000);
+
 async function empresaDePrueba(sufijo: string) {
   return prisma.organization.create({
     data: {
-      nit: `9019${sufijo}`,
+      nit: `9${CORRIDA}${sufijo}`,
       nitDv: "1",
       legalName: `Prueba ${sufijo} S.A.S.`,
       segment: "MIPYME",
@@ -111,7 +121,7 @@ test("un pago APROBADO exige confirmación del proveedor", async () => {
   // Con referencia y fecha sí pasa: la regla no bloquea el camino legítimo.
   const aprobado = await prisma.payment.update({
     where: { id: pago.id },
-    data: { status: "APROBADO", providerReference: "ref-1", confirmedAt: new Date() },
+    data: { status: "APROBADO", providerReference: `ref-${CORRIDA}`, confirmedAt: new Date() },
   });
   assert.equal(aprobado.status, "APROBADO");
 });
@@ -145,12 +155,12 @@ test("la misma clave de idempotencia no crea dos pagos", async () => {
 
 test("el mismo webhook del mismo proveedor entra una sola vez", async () => {
   await prisma.webhookDelivery.create({
-    data: { provider: "prueba", eventId: "evt-1", signature: "firma", payload: {} },
+    data: { provider: "prueba", eventId: `evt-${CORRIDA}`, signature: "firma", payload: {} },
   });
 
   const error = await debeFallar(() =>
     prisma.webhookDelivery.create({
-      data: { provider: "prueba", eventId: "evt-1", signature: "firma", payload: {} },
+      data: { provider: "prueba", eventId: `evt-${CORRIDA}`, signature: "firma", payload: {} },
     }),
   );
   assert.match(error, /P2002/);
@@ -256,7 +266,7 @@ test("una factura no puede salir a nombre de otra empresa", async () => {
 test("la clave de idempotencia es única por empresa, no global", async () => {
   const a = await empresaDePrueba("00024");
   const b = await empresaDePrueba("00025");
-  const clave = "misma-clave-para-las-dos";
+  const clave = `misma-clave-para-las-dos-${CORRIDA}`;
 
   await prisma.payment.create({
     data: {
@@ -291,4 +301,51 @@ test("scopeToOrganization no deja armar una consulta sin empresa", async () => {
   assert.throws(() => scopeToOrganization(undefined), /organizationId/);
   assert.throws(() => scopeToOrganization(""), /organizationId/);
   assert.deepEqual(scopeToOrganization("abc"), { organizationId: "abc" });
+});
+
+test("un mismo sujeto del proveedor no puede pertenecer a dos personas", async () => {
+  const s = Math.random().toString(36).slice(2, 8);
+  const emisor = "urn:prueba:proveedor";
+  const a = await prisma.user.create({ data: { email: `a.${s}@prueba.test`, status: "ACTIVO" } });
+  const b = await prisma.user.create({ data: { email: `b.${s}@prueba.test`, status: "ACTIVO" } });
+
+  await prisma.userIdentity.create({ data: { userId: a.id, issuer: emisor, subject: s } });
+  const error = await debeFallar(() =>
+    prisma.userIdentity.create({ data: { userId: b.id, issuer: emisor, subject: s } }),
+  );
+  assert.match(error, /P2002/);
+});
+
+test("una sesión revocada no puede quedar sin motivo ni fecha", async () => {
+  const s = Math.random().toString(36).slice(2, 8);
+  const usuario = await prisma.user.create({ data: { email: `rev.${s}@prueba.test`, status: "ACTIVO" } });
+
+  const error = await debeFallar(() =>
+    prisma.session.create({
+      data: {
+        userId: usuario.id,
+        tokenHash: `a${CORRIDA}`.padEnd(64, "a"),
+        csrfTokenHash: `b${CORRIDA}`.padEnd(64, "b"),
+        status: "REVOCADA",
+        expiresAt: new Date(Date.now() + 3_600_000),
+      },
+    }),
+  );
+  assert.match(error, /sessions_revoked_is_explained/);
+});
+
+test("un intento de login no puede caducar antes de existir", async () => {
+  const error = await debeFallar(() =>
+    prisma.authTransaction.create({
+      data: {
+        stateHash: `c${CORRIDA}`.padEnd(64, "c"),
+        bindingHash: `d${CORRIDA}`.padEnd(64, "d"),
+        nonce: "n",
+        codeVerifier: "v",
+        returnTo: "http://localhost:3001/",
+        expiresAt: new Date(Date.now() - 60_000),
+      },
+    }),
+  );
+  assert.match(error, /auth_transactions_expires_after_created/);
 });

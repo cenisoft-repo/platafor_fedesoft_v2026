@@ -18,6 +18,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
   - `docs/06-estado-vs-alcance.md` — qué demuestra hoy el prototipo frente a los nueve módulos exigidos, y la ruta en tres etapas para cerrar la brecha.
   - `docs/adr/ADR-006-fundacion-monorepo-y-datos.md` — qué se construyó en EPIC-00 y por qué las invariantes viven en la base de datos.
   - `docs/adr/ADR-007-recorrido-critico-pago-factura-certificado.md` — el recorrido pago → factura → certificado, sus controles y el orden en que se aplican.
+  - `docs/adr/ADR-008-identidad-sesion-y-autorizacion.md` — de dónde sale la identidad, dónde vive la sesión, cómo se deriva la autorización y cómo se revoca.
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
@@ -53,7 +54,8 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
 - No aceptar una historia sin pruebas proporcionales al riesgo.
 - No declarar "terminado" si lint, typecheck, test, build y migraciones no se ejecutaron en un entorno limpio.
 - No tocar módulos fuera del alcance de la tarea "para arreglar rápido": crear una tarea para el agente dueño del dominio.
-- No exponer un endpoint sin `@RequirePermission` o `@Public`: el guard global deniega, y quitarlo no es una opción.
+- No exponer un endpoint sin `@RequirePermission`, `@RequireSession` o `@Public`: el guard global deniega, y quitarlo no es una opción.
+- No entregar al navegador un token autocontenido con permisos: la sesión es opaca, vive en la base y se revoca (ADR-008).
 - No debilitar una invariante de la base de datos para que pase una prueba. Si estorba, discutir la regla en un ADR.
 - No cambiar la respuesta del webhook de pagos para que distinga motivos de fallo: sería un oráculo para el atacante. El detalle va al log y a la auditoría.
 - No leer el `organization_id` del cuerpo de una petición: sale de la sesión. Del cuerpo salen los identificadores de objetos, y siempre se verifica que pertenezcan a la empresa en sesión.
@@ -92,6 +94,7 @@ Cuándo invocar cada uno, en qué orden y con qué modelo: `docs/00-plan-de-ejec
 | Capa | Ruta | Nota |
 |---|---|---|
 | API | `apps/api` | NestJS. `/v1` afiliado, `/admin/v1` consola. Guard global de denegar por defecto |
+| Identidad y sesión | `apps/api/src/identity` | Puerto `IdentityProviderPort`; el proveedor se elige en una línea de `identity.module.ts`. Sesión opaca en PostgreSQL, permisos derivados en cada petición (ADR-008) |
 | Pagos y facturación | `apps/api/src/billing` | Puertos en `ports/`, proveedores solo en `adapters/`. El proveedor se elige en una línea de `billing.module.ts` |
 | Outbox | `apps/api/src/outbox` | Escritura transaccional y despachador con reintentos. En producción va a `apps/worker` |
 | Datos | `packages/db` | Esquema Prisma, migraciones forward-only, semilla sintética, pruebas de integridad |

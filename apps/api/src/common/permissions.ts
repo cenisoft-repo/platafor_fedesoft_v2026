@@ -14,6 +14,17 @@ export const PUBLIC_KEY = "fedesoft:public";
 export const Public = () => SetMetadata(PUBLIC_KEY, true);
 
 /**
+ * Exige sesión válida y nada más.
+ *
+ * Es para lo que la propia sesión gobierna —consultarla, cambiar de empresa,
+ * cerrarla—, donde pedir un permiso de dominio no significaría nada. Sigue
+ * siendo una declaración explícita: el guard solo conoce tres marcas y, sin
+ * ninguna de ellas, deniega.
+ */
+export const SESSION_KEY = "fedesoft:session";
+export const RequireSession = () => SetMetadata(SESSION_KEY, true);
+
+/**
  * Permisos que ningún comodín satisface.
  *
  * Un rol con `billing:*` no debe heredar la capacidad de reembolsar el día

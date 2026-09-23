@@ -36,6 +36,23 @@ pnpm --filter @fedesoft/api dev    # http://localhost:3000/docs
 
 Comprobación de salud: `/health/live` y `/health/ready`.
 
+### Entrar al portal en desarrollo
+
+Sin proveedor de identidad montado, `IDENTITY_PROVIDER=stub` recorre el mismo flujo de OIDC sin pedir credenciales (ADR-008). La semilla deja tres accesos:
+
+```bash
+# gerente de una empresa afiliada
+curl -i "http://localhost:3000/v1/auth/login?hint=camilo.restrepo@datalabsandina.co"
+# líder de talento de la misma empresa
+curl -i "http://localhost:3000/v1/auth/login?hint=diana.salazar@datalabsandina.co"
+# perfil interno: añade &mfa=true, o el guard denegará por falta de segundo factor
+curl -i "http://localhost:3000/v1/auth/login?hint=operaciones@fedesoft.test&mfa=true"
+```
+
+El `stub` **no arranca en producción ni donde haya TLS** (`SESSION_COOKIE_SECURE=true`): ahí `IDENTITY_PROVIDER` debe ser `oidc`, y exige emisor, cliente y secreto.
+
+`GET /v1/session` devuelve el contexto de la sesión; `POST /v1/session/organization` cambia de empresa y rota el identificador. Todo verbo que muta exige la cabecera `x-csrf-token` con el valor de la cookie `fdsft_csrf`.
+
 ### La puerta de calidad
 
 ```bash
@@ -48,6 +65,7 @@ Es lo mismo que corre el CI, con las migraciones sobre una base vacía. Nada se 
 
 ```text
 apps/api/        API NestJS · /v1 (afiliado) y /admin/v1 (consola)
+  src/identity/  Identidad, sesión y autorización (ADR-008)
 packages/db/     Esquema Prisma, migraciones, semilla e invariantes
 packages/config/ tsconfig y ESLint compartidos
 infra/docker/    Servicios locales
