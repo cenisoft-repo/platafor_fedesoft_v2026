@@ -243,7 +243,7 @@
       "alias": "amr-otp",
       "config": {
         "default.reference.value": "otp",
-        "default.reference.maxAge": "28800"
+        "default.reference.maxAge": "900"
       }
     }
   ]

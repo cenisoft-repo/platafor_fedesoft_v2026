@@ -45,7 +45,7 @@ Toda petición con método no seguro que llegue con cookie de sesión debe traer
 
 ### 5. Invitación = vínculo pendiente con vencimiento y aceptación explícita
 
-Invitar crea (o reutiliza) el `User` global y un `OrganizationUser` en estado `INVITADO` con vencimiento (`identidad.invitacion`, 72 h). La persona entra con su correo verificado y **acepta o rechaza de forma explícita** (`POST /v1/auth/invitations/:organizationId/accept|decline`); la sesión lista las pendientes. Solo al aceptar se enlaza o crea su `Contact` en la empresa. Así un gerente no puede meterse en la lista de empresas de alguien que trabaja con otra, ni registrar datos de una persona que no ha aceptado nada (Ley 1581). No hay token en el enlace: la posesión del correo la prueba el proveedor. El evento `identity.user.invited` queda en el outbox para el correo; aún no tiene consumidor.
+Invitar crea (o reutiliza) el `User` global —sin nombre: lo trae el proveedor en el primer login, nunca lo fija el gerente— y un `OrganizationUser` en estado `INVITADO` con vencimiento (`identidad.invitacion`, 72 h). La persona entra con su correo verificado y **acepta o rechaza de forma explícita** (`POST /v1/auth/invitations/:organizationId/accept|decline`); la sesión lista las pendientes. Solo al aceptar se enlaza o crea su `Contact` en la empresa. Así un gerente no puede meterse en la lista de empresas de alguien que trabaja con otra, ni registrar datos de una persona que no ha aceptado nada (Ley 1581). No hay token en el enlace: la posesión del correo la prueba el proveedor. El evento `identity.user.invited` queda en el outbox para el correo; aún no tiene consumidor.
 
 Retirar una invitación la borra (no la deja DESACTIVADA), y reinvitar a un desactivado se rechaza: así "reactivar" nunca da acceso a quien no aceptó, y no sirve de atajo para saltarse `user:manage`. Se descartó una tabla de invitaciones aparte: el estado del vínculo ya dice todo y la historia completa está en la auditoría.
 
@@ -88,12 +88,15 @@ Guard global `ActorThrottlerGuard`: 120 peticiones por minuto por usuario con se
 
 **Positivas.** El recorrido "gerente autenticado → estado de cuenta → pago" ya tiene su primer eslabón. Cambiar de proveedor no toca el dominio. Las reglas que más importan están en la base y probadas contra ella.
 
-**Verificado.** Pruebas unitarias, de contrato del adaptador contra un proveedor OIDC simulado por HTTP con firmas reales (trece ataques al ID token), de integración contra PostgreSQL, pruebas de mutación sobre los controles, y un recorrido manual contra Keycloak 26.4 con TOTP real. A5 revisó el diseño y la implementación; su veredicto inicial fue BLOCKED por el hallazgo de superficie (sección 2) y los hallazgos crítico, alto, medios y la mayoría de bajos se corrigieron en este mismo cambio.
+**Verificado.** Pruebas unitarias, de contrato del adaptador contra un proveedor OIDC simulado por HTTP con firmas reales (trece ataques al ID token), de integración contra PostgreSQL, pruebas de mutación sobre los controles, y un recorrido manual contra Keycloak 26.4 con TOTP real. A5 revisó el diseño y la implementación: veredicto inicial BLOCKED por el hallazgo de superficie (sección 2); tras las correcciones, **APROBADO CON OBSERVACIONES**, con las observaciones restantes registradas abajo como deuda.
 
 **Deuda asumida (con dueño y momento):**
 
 - Límite de peticiones en memoria: con varias réplicas pasa a Redis, y `TRUST_PROXY_HOPS` se fija con la topología real. A8, antes de staging.
 - El sujeto OIDC es único sin el emisor: al sumar o cambiar de proveedor hay que guardar `(issuer, subject)`. Exige su propio ADR y migración. A1 + A2, antes de un segundo proveedor.
+- El IdP de producción debe emitir `amr` por cada autenticación y no heredarlo de la sesión SSO (en el realm de desarrollo, la referencia `otp` vale 900 s, igual que `OIDC_CONSOLE_MAX_AGE_SEC`). A8 al configurar el proveedor definitivo.
+- `emailHash` en la auditoría de rechazos es SHA-256 sin clave: un seudónimo reversible con diccionario, no anonimización. Pasar a HMAC con clave del gestor de secretos y fijar la retención. A5 + A8 antes de producción.
+- La sesión se busca en la base antes del límite de peticiones (el middleware corre antes que los guards, y en un 404 los guards no corren). Una consulta indexada por petición; se acota con límite por IP en el balanceador/WAF. A8 antes de producción.
 - `NODE_ENV` ausente equivale a desarrollo y desactiva las comprobaciones de producción. El despliegue debe fijarlo siempre (A8); evaluar exigirlo en `env.ts`.
 - Limpieza de `sessions` y `auth_flows` vencidos: hoy oportunista en el login; pasa a un job de `apps/worker`. A3 en EPIC-02b.
 - Doble control y reautenticación para cambios de rol (RA-ACC-005/006): fase 2. Hoy queda auditado y protegido por las guardas de la sección 9.

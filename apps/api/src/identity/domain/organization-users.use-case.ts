@@ -31,9 +31,12 @@ export interface InviteeActor {
   organizationId: string | null;
 }
 
+/**
+ * Sin nombre a propósito: el gerente no fija cómo se llama una persona que
+ * aún no ha aceptado nada. El nombre lo trae el proveedor en el primer login.
+ */
 export interface InviteInput {
   email: string;
-  name: string;
   roleKey: string;
 }
 
@@ -106,7 +109,7 @@ export class OrganizationUsersUseCase {
       const usuario = await tx.user.upsert({
         where: { email },
         update: {},
-        create: { email, name: input.name, status: "INVITADO" },
+        create: { email, status: "INVITADO" },
       });
 
       const actual = await tx.organizationUser.findUnique({

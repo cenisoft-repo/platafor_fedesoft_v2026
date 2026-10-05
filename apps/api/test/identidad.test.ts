@@ -286,7 +286,8 @@ test("el gerente invita y la persona acepta de forma explícita tras entrar", as
   const email = `invitada.${sufijo()}@identidad.test`;
   const actor = { userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS };
 
-  const r = await orgUsers.invite(actor, { email: email.toUpperCase(), name: "Persona Invitada", roleKey: "talento" }, CTX);
+  const r = await orgUsers.invite(actor, { email: email.toUpperCase(), roleKey: "talento" }, CTX);
+  assert.equal((await prisma.user.findUniqueOrThrow({ where: { email } })).name, null);
   assert.equal(r.status, "INVITADO");
   /* Hasta que acepte no se crea su contacto: el gerente no trata datos de
      alguien que no ha aceptado nada (hallazgo A5 M1). */
@@ -309,10 +310,11 @@ test("el gerente invita y la persona acepta de forma explícita tras entrar", as
   assert.equal(s2?.actor.organizationId, org.id);
   assert.ok(s2?.actor.permissions.includes("training:*"));
   const contacto = await prisma.contact.findUniqueOrThrow({ where: { organizationId_email: { organizationId: org.id, email } } });
-  assert.equal(contacto.name, "Persona Invitada");
+  /* El nombre es el del proveedor, nunca uno escrito por el gerente. */
+  assert.equal(contacto.name, "Nombre Propio");
   await assert.rejects(orgUsers.acceptInvitation(s1.actor, org.id, CTX), NotFoundException);
 
-  await assert.rejects(orgUsers.invite(actor, { email, name: "Otra vez", roleKey: "talento" }, CTX), ConflictException);
+  await assert.rejects(orgUsers.invite(actor, { email, roleKey: "talento" }, CTX), ConflictException);
 });
 
 test("una invitación de otra empresa no se cuela en la cuenta de quien ya trabaja con otra", async () => {
@@ -322,7 +324,7 @@ test("una invitación de otra empresa no se cuela en la cuenta de quien ya traba
   const gerenteIntruso = await usuario({ org: intrusa.id });
   await orgUsers.invite(
     { userId: gerenteIntruso.id, organizationId: intrusa.id, permissions: GERENTE_PERMS },
-    { email: persona.email, name: "Nombre Inventado", roleKey: "contacto" },
+    { email: persona.email, roleKey: "contacto" },
     CTX,
   );
   const s = await sessions.authenticate(await entrar("PORTAL", identidad(persona)), "PORTAL");
@@ -341,7 +343,7 @@ test("una invitación vencida no da acceso", async () => {
   const org = await empresa();
   const gerente = await usuario({ org: org.id });
   const email = `vencida.${sufijo()}@identidad.test`;
-  const r = await orgUsers.invite({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, { email, name: "Vencida", roleKey: "contacto" }, CTX);
+  const r = await orgUsers.invite({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, { email, roleKey: "contacto" }, CTX);
   await prisma.organizationUser.update({
     where: { organizationId_userId: { organizationId: org.id, userId: r.userId } },
     data: { inviteExpiresAt: new Date(Date.now() - 1000) },
@@ -354,22 +356,22 @@ test("con user:invite a secas no se fabrica un gerente, ni se reactiva a un desa
   const gerente = await usuario({ org: org.id });
   const soloInvita = { userId: gerente.id, organizationId: org.id, permissions: ["user:invite"] };
   await assert.rejects(
-    orgUsers.invite(soloInvita, { email: `alias.${sufijo()}@i.test`, name: "Alias Propio", roleKey: "gerente" }, CTX),
+    orgUsers.invite(soloInvita, { email: `alias.${sufijo()}@i.test`, roleKey: "gerente" }, CTX),
     ForbiddenException,
   );
-  await orgUsers.invite(soloInvita, { email: `ok.${sufijo()}@i.test`, name: "Contacto Normal", roleKey: "contacto" }, CTX);
+  await orgUsers.invite(soloInvita, { email: `ok.${sufijo()}@i.test`, roleKey: "contacto" }, CTX);
 
   const talento = await usuario({ org: org.id, rol: "talento" });
   const actor = { userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS };
   await orgUsers.deactivate(actor, talento.id, CTX);
-  await assert.rejects(orgUsers.invite(actor, { email: talento.email, name: "Reinvitar", roleKey: "talento" }, CTX), ConflictException);
+  await assert.rejects(orgUsers.invite(actor, { email: talento.email, roleKey: "talento" }, CTX), ConflictException);
 });
 
 test("retirar una invitación la borra: reactivar no da acceso a quien nunca aceptó", async () => {
   const org = await empresa();
   const gerente = await usuario({ org: org.id });
   const actor = { userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS };
-  const r = await orgUsers.invite(actor, { email: `retirada.${sufijo()}@i.test`, name: "Retirada", roleKey: "contacto" }, CTX);
+  const r = await orgUsers.invite(actor, { email: `retirada.${sufijo()}@i.test`, roleKey: "contacto" }, CTX);
   assert.equal((await orgUsers.deactivate(actor, r.userId, CTX)).status, "REVOCADA");
   await assert.rejects(orgUsers.reactivate(actor, r.userId, CTX), NotFoundException);
 });
@@ -378,7 +380,7 @@ test("el gerente no puede asignar roles internos", async () => {
   const org = await empresa();
   const gerente = await usuario({ org: org.id });
   await assert.rejects(
-    orgUsers.invite({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, { email: `x.${sufijo()}@i.test`, name: "Escalada", roleKey: SUPER_ADMIN_ROLE }, CTX),
+    orgUsers.invite({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, { email: `x.${sufijo()}@i.test`, roleKey: SUPER_ADMIN_ROLE }, CTX),
     BadRequestException,
   );
   const talento = await usuario({ org: org.id, rol: "talento" });

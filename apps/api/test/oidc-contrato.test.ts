@@ -88,6 +88,11 @@ test("amr o acr con un valor configurado cuentan como segundo factor", async () 
   assert.equal((await canjear({ amr: ["pwd"], acr: "1" })).mfa, false);
 });
 
+test("para la consola, autenticación reciente sin otp no cuenta como segundo factor", async () => {
+  const id = await canjear({ amr: ["pwd"], auth_time: Math.floor(Date.now() / 1000) }, { requireMfa: true });
+  assert.equal(id.mfa, false);
+});
+
 test("para la consola, una autenticación reciente se acepta", async () => {
   const id = await canjear({ amr: ["pwd", "otp"], auth_time: Math.floor(Date.now() / 1000) - 60 }, { requireMfa: true });
   assert.equal(id.mfa, true);

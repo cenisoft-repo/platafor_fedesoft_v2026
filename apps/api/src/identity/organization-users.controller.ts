@@ -1,7 +1,7 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Req } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { Throttle } from "@nestjs/throttler";
-import { IsEmail, IsString, Matches, MaxLength, MinLength } from "class-validator";
+import { IsEmail, Matches, MaxLength } from "class-validator";
 import { RequirePermission } from "../common/permissions.js";
 import { OrganizationUsersUseCase, type OrgActor } from "./domain/organization-users.use-case.js";
 import type { AuthenticatedRequest } from "./http/session.middleware.js";
@@ -13,11 +13,6 @@ class InviteUserDto {
   @IsEmail()
   @MaxLength(320)
   email!: string;
-
-  @IsString()
-  @MinLength(2)
-  @MaxLength(200)
-  name!: string;
 
   @Matches(CLAVE_ROL)
   roleKey!: string;

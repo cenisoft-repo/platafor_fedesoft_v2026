@@ -266,7 +266,8 @@ export class LoginUseCase {
 
       await tx.user.update({
         where: { id: usuario.id },
-        data: { status: "ACTIVO", lastLoginAt: ahora, name: usuario.name ?? identidad.name },
+        /* Manda el nombre del proveedor: es el que la persona controla. */
+        data: { status: "ACTIVO", lastLoginAt: ahora, name: identidad.name ?? usuario.name },
       });
 
       await this.audit.record(tx, {
