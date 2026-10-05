@@ -5,9 +5,11 @@ import { DenyByDefaultGuard } from "./common/deny-by-default.guard.js";
 import { HealthController } from "./health/health.controller.js";
 import { PrismaService } from "./prisma/prisma.service.js";
 import { BillingModule } from "./billing/billing.module.js";
+import { IdentityModule } from "./identity/identity.module.js";
+import { SessionMiddleware } from "./identity/http/session.middleware.js";
 
 @Module({
-  imports: [BillingModule],
+  imports: [BillingModule, IdentityModule],
   controllers: [HealthController],
   providers: [
     PrismaService,
@@ -18,6 +20,8 @@ import { BillingModule } from "./billing/billing.module.js";
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
-    consumer.apply(CorrelationMiddleware).forRoutes("*splat");
+    /* Orden: primero el correlation_id (la auditoría del login lo usa),
+       después la sesión, que pone `req.actor` para el guard global. */
+    consumer.apply(CorrelationMiddleware, SessionMiddleware).forRoutes("*splat");
   }
 }

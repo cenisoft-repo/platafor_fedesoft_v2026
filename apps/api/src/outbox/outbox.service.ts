@@ -8,7 +8,8 @@ export type DomainEvent =
   | "invoice.rejected"
   | "certificate.generated"
   | "membership.status_changed"
-  | "organization.updated";
+  | "organization.updated"
+  | "identity.user.invited";
 
 export interface EventToPublish {
   eventType: DomainEvent;

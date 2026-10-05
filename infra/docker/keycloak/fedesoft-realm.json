@@ -1,0 +1,250 @@
+{
+  "realm": "fedesoft",
+  "displayName": "Fedesoft · desarrollo local",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": true,
+  "rememberMe": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "verifyEmail": true,
+  "bruteForceProtected": true,
+  "failureFactor": 5,
+  "waitIncrementSeconds": 60,
+  "maxFailureWaitSeconds": 900,
+  "permanentLockout": false,
+  "internationalizationEnabled": true,
+  "supportedLocales": [
+    "es"
+  ],
+  "defaultLocale": "es",
+  "otpPolicyType": "totp",
+  "otpPolicyAlgorithm": "HmacSHA1",
+  "otpPolicyDigits": 6,
+  "otpPolicyPeriod": 30,
+  "passwordPolicy": "length(12) and notUsername and notEmail",
+  "clients": [
+    {
+      "clientId": "portal-api",
+      "name": "Portal Único del Afiliado (API)",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "cambiar-secreto-local-del-cliente",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "frontchannelLogout": true,
+      "redirectUris": [
+        "http://localhost:3000/v1/auth/callback",
+        "http://localhost:3000/admin/v1/auth/callback"
+      ],
+      "webOrigins": [],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://localhost:3001##http://localhost:3002"
+      },
+      "defaultClientScopes": [
+        "basic",
+        "email",
+        "profile"
+      ],
+      "optionalClientScopes": [],
+      "protocolMappers": [
+        {
+          "name": "amr",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-amr-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "true",
+            "access.token.claim": "true",
+            "introspection.token.claim": "true"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "superadmin1@fedesoft-dev.test",
+      "email": "superadmin1@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Super Admin",
+      "lastName": "Uno",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "Autenticador de desarrollo",
+          "secretData": "{\"value\": \"fedesoft-dev-totp-solo-local\"}",
+          "credentialData": "{\"subType\": \"totp\", \"digits\": 6, \"counter\": 0, \"period\": 30, \"algorithm\": \"HmacSHA1\"}"
+        }
+      ]
+    },
+    {
+      "username": "superadmin2@fedesoft-dev.test",
+      "email": "superadmin2@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Super Admin",
+      "lastName": "Dos",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        }
+      ],
+      "requiredActions": [
+        "CONFIGURE_TOTP"
+      ]
+    },
+    {
+      "username": "operaciones@fedesoft-dev.test",
+      "email": "operaciones@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Operaciones",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        }
+      ],
+      "requiredActions": [
+        "CONFIGURE_TOTP"
+      ]
+    },
+    {
+      "username": "camilo.restrepo@datalabsandina.co",
+      "email": "camilo.restrepo@datalabsandina.co",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Camilo",
+      "lastName": "Restrepo",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "diana.salazar@datalabsandina.co",
+      "email": "diana.salazar@datalabsandina.co",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Diana",
+      "lastName": "Salazar",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        }
+      ]
+    }
+  ],
+  "browserFlow": "fedesoft-browser",
+  "authenticationFlows": [
+    {
+      "alias": "fedesoft-browser",
+      "description": "Navegador con referencias AMR: la API reconoce el segundo factor por el claim amr (ADR-008).",
+      "providerId": "basic-flow",
+      "topLevel": true,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-cookie",
+          "authenticatorFlow": false,
+          "requirement": "ALTERNATIVE",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "ALTERNATIVE",
+          "priority": 20,
+          "flowAlias": "fedesoft-browser-forms",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "fedesoft-browser-forms",
+      "description": "Usuario y contraseña, y OTP si el usuario lo tiene configurado.",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "auth-username-password-form",
+          "authenticatorConfig": "amr-pwd",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticatorFlow": true,
+          "requirement": "CONDITIONAL",
+          "priority": 20,
+          "flowAlias": "fedesoft-browser-otp",
+          "userSetupAllowed": false
+        }
+      ]
+    },
+    {
+      "alias": "fedesoft-browser-otp",
+      "description": "OTP condicional.",
+      "providerId": "basic-flow",
+      "topLevel": false,
+      "builtIn": false,
+      "authenticationExecutions": [
+        {
+          "authenticator": "conditional-user-configured",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 10,
+          "userSetupAllowed": false
+        },
+        {
+          "authenticator": "auth-otp-form",
+          "authenticatorConfig": "amr-otp",
+          "authenticatorFlow": false,
+          "requirement": "REQUIRED",
+          "priority": 20,
+          "userSetupAllowed": false
+        }
+      ]
+    }
+  ],
+  "authenticatorConfig": [
+    {
+      "alias": "amr-pwd",
+      "config": {
+        "default.reference.value": "pwd",
+        "default.reference.maxAge": "36000"
+      }
+    },
+    {
+      "alias": "amr-otp",
+      "config": {
+        "default.reference.value": "otp",
+        "default.reference.maxAge": "28800"
+      }
+    }
+  ]
+}

@@ -27,7 +27,7 @@ Requisitos: Node 22 (`.nvmrc`), pnpm 10.33, Docker.
 
 ```bash
 pnpm install
-pnpm infra:up                      # PostgreSQL, Redis y almacenamiento S3
+pnpm infra:up                      # PostgreSQL, Redis, almacenamiento S3 y Keycloak
 cp packages/db/.env.example packages/db/.env
 cp apps/api/.env.example apps/api/.env
 pnpm db:migrate && pnpm db:seed
@@ -35,6 +35,10 @@ pnpm --filter @fedesoft/api dev    # http://localhost:3000/docs
 ```
 
 Comprobación de salud: `/health/live` y `/health/ready`.
+
+### Iniciar sesión en local
+
+El login es OIDC contra el Keycloak de `infra/docker` (ADR-008). Abre `http://localhost:3000/v1/auth/login` (portal) o `http://localhost:3000/admin/v1/auth/login` (consola, exige TOTP). Usuarios sintéticos y secreto TOTP de prueba: [`infra/docker/keycloak/README.md`](infra/docker/keycloak/README.md). Tras entrar, el API redirige a `PORTAL_URL`/`CONSOLE_URL`; mientras no existan `apps/web` y `apps/admin`, consulta la sesión en `GET /v1/auth/session` desde el mismo navegador.
 
 ### La puerta de calidad
 
@@ -47,10 +51,10 @@ Es lo mismo que corre el CI, con las migraciones sobre una base vacía. Nada se 
 ### Estructura
 
 ```text
-apps/api/        API NestJS · /v1 (afiliado) y /admin/v1 (consola)
+apps/api/        API NestJS · /v1 (afiliado) y /admin/v1 (consola) · login OIDC y sesiones
 packages/db/     Esquema Prisma, migraciones, semilla e invariantes
 packages/config/ tsconfig y ESLint compartidos
-infra/docker/    Servicios locales
+infra/docker/    Servicios locales (incluye el realm de Keycloak de desarrollo)
 ```
 
 **Los secretos nunca entran al repositorio.** Cada paquete trae su `.env.example`; el `.env` real está en `.gitignore`.

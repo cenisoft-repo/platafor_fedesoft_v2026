@@ -8,7 +8,10 @@
     "types": ["node"],
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
-    "strictPropertyInitialization": false
+    "strictPropertyInitialization": false,
+    /* nest build borra dist/ (deleteOutDir) pero el .tsbuildinfo vivía fuera:
+       tsc creía todo compilado y emitía un dist/ incompleto que no arrancaba. */
+    "incremental": false
   },
   "include": ["src/**/*.ts"]
 }

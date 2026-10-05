@@ -14,6 +14,20 @@ export const PUBLIC_KEY = "fedesoft:public";
 export const Public = () => SetMetadata(PUBLIC_KEY, true);
 
 /**
+ * Exige sesión válida pero ningún permiso de negocio: ver la propia sesión,
+ * elegir empresa, cerrar sesión. Es la tercera marca explícita (ADR-008); un
+ * endpoint sin ninguna de las tres sigue denegado.
+ */
+export const AUTHENTICATED_KEY = "fedesoft:authenticated";
+export const Authenticated = () => SetMetadata(AUTHENTICATED_KEY, true);
+
+/** Las rutas de la consola interna viven bajo este prefijo (ADR-005). */
+export function isConsoleRoute(url: string | undefined): boolean {
+  const ruta = (url ?? "").split("?")[0] ?? "";
+  return ruta === "/admin" || ruta.startsWith("/admin/");
+}
+
+/**
  * Permisos que ningún comodín satisface.
  *
  * Un rol con `billing:*` no debe heredar la capacidad de reembolsar el día

@@ -38,6 +38,17 @@ services:
     ports: ["9000:9000", "9001:9001"]
     volumes: ["miniodata:/data"]
 
+  # Proveedor de identidad OIDC para desarrollo (ADR-008). Importa el realm
+  # `fedesoft` con usuarios sintéticos al arrancar; sus datos no persisten.
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.4.0
+    command: ["start-dev", "--import-realm"]
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: fedesoft_local
+    ports: ["8080:8080"]
+    volumes: ["./keycloak:/opt/keycloak/data/import:ro"]
+
 volumes:
   pgdata:
   redisdata:
