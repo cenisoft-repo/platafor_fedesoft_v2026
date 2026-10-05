@@ -46,6 +46,7 @@ Prototipo en `cenisoft-repo/fedesoft`, commit `c266f09`. Veinte rutas de aplicac
 | Página pública / manifiesto | 🟢 Construida | No la pedía el documento; es la que sostiene la narrativa "país origen de software" |
 | Inicio de sesión | 🟢 Construido | `/entrar`: la selección de persona **es** la autenticación del prototipo, y con ella la segmentación se ve desde la primera pantalla |
 | Consola de administración | 🟢 Tres pantallas | Superficie propia: ficha 360, bandeja de solicitudes y tablero de cartera. `docs/01-consola-administracion.md` define ~15 gestiones; estas tres demuestran el alcance |
+| Vista de Dirección (Presidencia) | 🔴 Sin pantalla | Especificada en `docs/01-consola-administracion.md` §6.2.1. Es la cuarta pantalla natural de la consola y la única que le falta justamente a quien se le presenta el prototipo |
 | Notificaciones, perfil personal, ayuda | 🔴 Sin pantalla | Secundarias para la demostración |
 
 ---

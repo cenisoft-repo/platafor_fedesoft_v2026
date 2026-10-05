@@ -1,6 +1,8 @@
 # Consola de administración — operabilidad del super usuario
 
-**Versión 0.2 · 15 de septiembre de 2026 · Estado: decisiones estructurales aprobadas (app separada, Opción A, BI existente, aprobación con acta); detalles pendientes en la sección 10**
+**Versión 0.3 · 5 de octubre de 2026 · Estado: decisiones estructurales aprobadas (app separada, Opción A, BI existente, aprobación con acta); detalles pendientes en la sección 10**
+
+*Cambios de 0.3:* `DIR` pasa a solo lectura —la aprobación de afiliación la registra `OPS` con acta (ADR-005)— con las metas anuales como única excepción declarada; se especifica la vista de Dirección (sección 6.2.1) y se adelanta su `v0` a la fase 2; el diccionario gana el cruce retención–participación y los índices compuestos publican sus pesos.
 
 La consola es el *back-office* del Portal Único del Afiliado: desde ella Fedesoft configura, opera, interviene y mide todo el sistema. Este documento define **roles internos y permisos, parametrización, CRUDs por dominio, gestiones operativas, analítica/dashboards/resultados, seguridad y arquitectura**, y su encaje en el plan. Complementa —no reemplaza— los documentos rectores de `docs/base/`.
 
@@ -33,7 +35,7 @@ La consola es el *back-office* del Portal Único del Afiliado: desde ella Fedeso
 | **Comunicaciones · Contenido** (`COM`) | Comunicaciones | Plantillas, campañas, anuncios, insights publicados, ofertas del directorio (moderación), sello y piezas | Global sobre contenido |
 | **Relacionamiento · Verticales y Cenisoft** (`REL`) | Cenisoft / verticales | Verticales, mesas, documentos, oportunidades y convocatorias, postulaciones | Global sobre relacionamiento |
 | **KAM** (`KAM`) | Gestores de cuenta | Cuentas estratégicas asignadas: ficha 360 de lectura, interacciones, planes de acción | Solo `organization_id` asignadas |
-| **Dirección** (`DIR`) | Presidencia Ejecutiva / dirección | Dashboards y resultados, reportes, aprobaciones de segundo nivel, lectura del padrón | Global de lectura |
+| **Dirección** (`DIR`) | Presidencia Ejecutiva / dirección | Dashboards y resultados, reportes y exportación de analítica, lectura del padrón, **metas anuales** | Global de **solo lectura**, con una sola excepción declarada: las metas anuales |
 | **Auditor** (`AUD`) | Revisoría / control | Auditoría, reportes y exportaciones, sin mutación | Global de lectura |
 
 Un usuario interno puede tener más de un rol. La aprobación de afiliación por la Junta Directiva ocurre fuera del sistema y se modela como **aprobación registrada** por `OPS` con número de acta, fecha y aprobador (decidido, sección 10); la Junta no necesita acceso a la consola.
@@ -45,7 +47,7 @@ Códigos: **C** crear · **R** ver · **U** editar · **S** cambiar estado · **
 | Recurso | SA | OPS | FIN | TAL | COM | REL | KAM | DIR | AUD |
 |---|---|---|---|---|---|---|---|---|---|
 | Empresas y contactos | CRUSX | CRUSX | R | R | R | R | R *(a)* | R | RX |
-| Solicitudes y estados de afiliación | CRUSX | CRUS | R | — | — | — | R *(a)* | RS (2.º nivel) | RX |
+| Solicitudes y estados de afiliación | CRUSX | CRUS | R | — | — | — | R *(a)* | RX | RX |
 | Tarifas, cargos, pagos y conciliación | CRUSX✚ | R | CRUSX (anulaciones ✚) | — | — | — | R *(a)* | R | RX |
 | Facturas electrónicas | RSX | R | RSX | — | — | — | — | R | RX |
 | Certificados y sello | CRSX | CRS (manual ✚) | R | — | R | — | R *(a)* | R | RX |
@@ -56,12 +58,20 @@ Códigos: **C** crear · **R** ver · **U** editar · **S** cambiar estado · **
 | Oportunidades y postulaciones | CRUSX | — | — | — | — | CRUSX | R *(a)* | R | RX |
 | Cuentas estratégicas e interacciones | CRUSX | R | — | — | — | R | CRU *(a)* | R | RX |
 | Plantillas, campañas y comunicaciones | CRUSX | R | R | RU (propias) | CRUS | R | — | R | RX |
-| Parámetros, catálogos, reglas, flags | P✚ | R | P (tarifas y cartera ✚) | R | R | R | — | R | RX |
+| Parámetros, catálogos, reglas, flags | P✚ | R | P (tarifas y cartera ✚) | R | R | R | — | R · P *(solo metas anuales)* ✚ | RX |
 | Usuarios internos y roles | CRUS✚ | — | — | — | — | — | — | R | R |
 | Proveedores e integraciones | P✚ | — | R (estado) | — | — | — | — | — | R |
 | Colas, webhooks, importación y exportación | CRUSX | Import padrón, X | X | X | — | X | — | — | RX |
 | Auditoría | RX | R (propia área) | R (propia área) | R (propia área) | R (propia área) | R (propia área) | R *(a)* | R | RX |
 | Analítica y dashboards | R | R (propios) | R (propios) | R (propios) | R (propios) | R (propios) | R *(a)* | RX | RX |
+
+**Por qué `DIR` no aprueba nada (corregido, 5 oct 2026).** La matriz le daba a Dirección `RS (2.º nivel)` sobre solicitudes de afiliación. Cambiar un estado es mutar, así que ese permiso contradecía su propio alcance —"global de lectura"— y, sobre todo, contradecía la decisión 2 de la sección 10 y ADR-005: **la Junta Directiva decide fuera del sistema y Operaciones registra la aprobación con número de acta, fecha y aprobador.** No hay un segundo nivel dentro de la consola que aprobar.
+
+Había además una asimetría difícil de defender: activar una empresa —que crea su afiliación, emite su primer cargo y le abre el portal— no exigía doble control, mientras que anular un cargo o emitir un certificado manual sí. Si en algún momento Fedesoft quiere de verdad una aprobación de segundo nivel en el sistema, entra como acción explícita, con doble control y auditoría, no como una `S` suelta en una celda.
+
+Dirección conserva lo que necesita para decidir: ve el padrón completo y exporta analítica. Quien quiera además que la presidencia *ejerza* una acción, tendrá que pedirla por nombre.
+
+**Y una acción sí se pide por nombre: las metas anuales.** La decisión 7 de la sección 10 dice que `DIR` las ajusta, y fijar una meta también es mutar, así que queda declarada como la única excepción a su alcance de lectura: `P` sobre el parámetro de metas y nada más, con doble control y auditoría. Es defendible porque una meta no mueve dinero ni reparte privilegios —solo dibuja la línea contra la que se mide el resto—, y porque es suya: nadie más debería poder cambiarle el número con el que la miden.
 
 Implementación: permisos como cadenas `dominio.recurso.accion` (p. ej. `billing.charge.void`), roles como conjuntos editables por `SA` con guardas (no puede quitarse a sí mismo el rol `SA`; todo cambio de rol con motivo, doble control y notificación). Condiciones ABAC en el servidor: `organization_id` asignada, área propia, segmento.
 
@@ -135,7 +145,7 @@ Eliminación siempre **lógica** (con motivo); la eliminación física solo por 
 
 | # | Gestión | Flujo (estados) | Quién | Automatizaciones |
 |---|---|---|---|---|
-| 5.1 | Alta de afiliado | Solicitud → validación documental → aprobación (Junta / 2.º nivel) → activación | OPS, DIR | Crea Membership, cargo inicial prorrateado, invita contactos, publica en directorio, envía bienvenida |
+| 5.1 | Alta de afiliado | Solicitud → validación documental → aprobación de la Junta **registrada por `OPS`** con acta → activación | OPS (`DIR` solo ve) | Crea Membership, cargo inicial prorrateado, invita contactos, publica en directorio, envía bienvenida |
 | 5.2 | Ciclo de cartera | Cargos anuales masivos → recordatorios → pago (portal) o transferencia (manual + soporte) → factura → al día | FIN | Recordatorios por reglas; pago en línea 100 % automático; conciliación diaria |
 | 5.3 | Conciliación | Bandeja: pagos sin cargo, cargos sin pago, diferencias proveedor vs. local → cierre diario/mensual | FIN | Job de comparación con la pasarela; reporte de cierre |
 | 5.4 | Facturación | Monitor de cola → reintentos → rechazos DIAN (corrección y reemisión) → notas crédito | FIN | Reintento con backoff; dead-letter con alerta |
@@ -173,6 +183,50 @@ Eliminación siempre **lógica** (con motivo); la eliminación física solo por 
 | **Directorio y visibilidad** | ¿Se usa la vitrina? | Perfiles verificados; ofertas activas; consultas; insights descargados |
 | **Operación técnica** | ¿Está sano el sistema? | Colas, fallos de integración, latencia y errores, logins y MFA, eventos de seguridad |
 
+### 6.2.1 La vista de Dirección, en detalle
+
+El cuadro anterior dice **qué datos** necesita Presidencia Ejecutiva. Esta sección dice **cómo se le presentan**, porque no es lo mismo: trece cifras sin jerarquía son un informe que se lee una vez y no se vuelve a abrir.
+
+La vista responde tres preguntas, en este orden, y cabe en una pantalla sin desplazamiento.
+
+#### Franja 1 · Las tres cifras
+
+| | Pregunta | Cifra protagonista | A su lado |
+|---|---|---|---|
+| 1 | **¿Crece el gremio?** | Afiliados activos | Altas y bajas del periodo · retención anual · meta |
+| 2 | **¿Entra la plata?** | Recaudo del año | % contra meta · % de afiliados al día · cartera vencida |
+| 3 | **¿Sirve la afiliación?** | Tasa de autoservicio | Participación por empresa · **retención según participación** · meta |
+
+Cada una lleva su variación contra el periodo anterior y, cuando las metas estén definidas (`RQ-FED-012`), su línea de meta. Nada más: la cifra, el cambio y la referencia.
+
+La tercera es la que casi nunca aparece en un tablero gremial y es la que sostiene la cuota: **las empresas que participan renuevan más que las que no participan.** Mientras participación y retención vivan en pantallas distintas, el tablero mide actividad; juntas, miden valor, y eso es lo que se defiende ante la Junta.
+
+#### Franja 2 · Qué cambió y qué necesita su atención
+
+Debajo, **cinco filas como máximo**, y son excepciones, no indicadores. Una lista que crece sin tope deja de leerse:
+
+1. Metas en riesgo según la proyección del periodo.
+2. Empresas grandes o cuentas estratégicas que cayeron en mora.
+3. Cuentas estratégicas sin interacción registrada en más de 60 días.
+4. Verticales sin sesión en el trimestre.
+5. Facturas electrónicas rechazadas acumuladas sin resolver.
+
+Cada fila enlaza a su detalle. Ninguna es editable desde aquí: la vista señala, el dueño del dominio resuelve.
+
+#### Detrás del clic
+
+- El resto del diccionario de indicadores (sección 6.3), segmentable por tipo de afiliación, segmento, sector, región y periodo.
+- Los tableros de las otras audiencias, de solo lectura.
+- *Drill-down* hasta la ficha 360 de una empresa, con el permiso correspondiente y con la exportación trazada.
+
+#### Con qué ritmo se abre
+
+Una presidencia no abre un tablero todos los días, así que el artefacto principal **no es la pantalla: es el reporte mensual para Junta**, generado desde el mismo diccionario para que no haya dos cifras de lo mismo. La pantalla queda para consultar entre reportes, y un aviso por correo cubre lo que no puede esperar al cierre del mes: una meta que entra en riesgo o una cuenta estratégica que cae en mora.
+
+#### Lo que esta vista no hace
+
+Ningún dato personal en los agregados; ningún número sin dueño y fórmula en el diccionario; ninguna acción sobre el padrón, la cartera o los documentos. Lo único que Dirección escribe desde aquí son sus propias metas anuales, con doble control y auditoría (sección 2.2). Y los dos semánticos de advertencia y error nunca se distinguen solo por color: el ámbar y el rojo del manual de marca no se separan lo suficiente con deuteranopia, así que toda alerta lleva ícono y etiqueta además del tono (`docs/design/identidad-visual.md`).
+
 ### 6.3 Indicadores clave (diccionario v0)
 | KPI | Definición | Fuente | Corte |
 |---|---|---|---|
@@ -187,11 +241,18 @@ Eliminación siempre **lógica** (con motivo); la eliminación física solo por 
 | Facturas con problema | Rechazadas o en reintento ÷ emitidas | Invoice | Diario |
 | Ocupación de cupos | Inscritos ÷ cupos, por curso y comunidad | Enrollment | Semanal |
 | Participación por empresa | Empresas con ≥ 1 participación (formación, comunidad, vertical) en el periodo ÷ activos | Learning, Communities, Verticals | Mensual |
+| **Retención según participación** | Retención anual de empresas con ≥ 1 participación en el año, frente a la de empresas sin ninguna. Es el indicador que sostiene el valor de la cuota | MembershipHistory + Learning, Communities, Verticals | Mensual |
 | Pipeline Cenisoft | Oportunidades publicadas, postulaciones, adjudicaciones y tasa de conversión | Cenisoft | Mensual |
-| Salud de cuenta estratégica | Índice compuesto (al día, participación, interacciones recientes, acciones vencidas) | Varios | Semanal |
+| Salud de cuenta estratégica | Índice 0–100 con **pesos declarados y versionados**: al día (40), participación en el año (25), interacción en los últimos 60 días (25), acciones vencidas (−10). La vista muestra siempre los cuatro componentes junto al índice | Varios | Semanal |
+
+**Sobre los índices compuestos.** Un número que no se puede descomponer no se puede discutir, y lo que no se discute no se usa para decidir. Cualquier índice de este diccionario publica sus pesos, los versiona como cualquier otro parámetro y se muestra junto a sus componentes. Los pesos de arriba son una propuesta de partida: los ajusta Dirección, no el código.
 
 ### 6.4 Resultados
 Un **tablero de metas** con objetivos anuales configurables (afiliados, recaudo, retención, participación, autoservicio) y su avance; reporte mensual para Junta generado desde el diccionario de métricas; comparación con el año anterior; exportación programada por correo.
+
+**Mientras `RQ-FED-012` siga abierta, la línea de meta está vacía** y la franja 1 muestra la cifra y su variación, sin referencia. No es un impedimento técnico: es que la mitad del valor de esta vista depende de cinco números que define Dirección. Conviene decírselo así de directo en la revisión del hito H1.
+
+**Y una versión mínima no debería esperar a la fase 5.** Las cuatro cifras de la franja 1 —activos, % al día, recaudo y tasa de autoservicio— salen de datos que existen al terminar la fase 2, y son además la evidencia de que el proyecto funciona. Dejar para el final la pantalla de quien aprueba y financia el proyecto es el orden exactamente inverso al que conviene: se entrega `v0` en la fase 2 y se completa después.
 
 ### 6.5 Arquitectura de analítica
 - Esquema `analytics` (vistas materializadas + hechos) refrescado por jobs BullMQ y por eventos; API `GET /admin/v1/analytics/*` con periodo y segmento.
@@ -227,7 +288,7 @@ Dos épicas transversales, entregadas por rebanadas junto a cada fase (no al fin
 |---|---|---|
 | 0 · Fundación | `apps/admin` shell con guard interno y MFA; auditoría base; dominio Config con catálogos y parámetros base | Esquema `analytics` vacío; diccionario de métricas v0 |
 | 1 · Núcleo | Ficha 360 (núcleo); CRUD de empresas, contactos y afiliaciones; bandeja de solicitudes; usuarios internos y roles; importación de padrón (mapeo) | Dashboard de Operaciones v1 |
-| 2 · Dinero y documentos | Tarifas y cargos masivos; conciliación; facturas y colas; certificados (excepciones, revocación); monitor de webhooks | Dashboard de Cartera v1 (recaudo, *aging*, facturas) |
+| 2 · Dinero y documentos | Tarifas y cargos masivos; conciliación; facturas y colas; certificados (excepciones, revocación); monitor de webhooks | Dashboard de Cartera v1 (recaudo, *aging*, facturas); **vista de Dirección v0**: las cuatro cifras de la franja 1, sin línea de meta |
 | 3 · Autoservicio ampliado | Administración de formación, comunidades, directorio y campañas | Dashboards de formación, comunidades y visibilidad |
 | 4 · Alto contacto | Administración de verticales, oportunidades y cuentas estratégicas | Dashboard de relacionamiento |
 | 5 · Hardening y salida | Soporte controlado endurecido; pentest de consola; feature flags de piloto | Conexión del BI existente (Power BI / Looker) a la réplica de lectura; tablero de metas y reporte mensual; exportaciones programadas |
@@ -250,6 +311,6 @@ Dos épicas transversales, entregadas por rebanadas junto a cada fase (no al fin
 | 4 | ¿Se mantiene el pago por transferencia bancaria? | Sí durante la transición, con registro manual + soporte + conciliación; meta: minimizarlo |
 | 5 | Lista de acciones con doble control | La de la sección 7; editable solo por `SA` |
 | 6 | Soporte "ver como afiliado": ¿solo lectura o con acciones? | Solo lectura por defecto; acciones en nombre de con motivo y auditoría |
-| 7 | Metas anuales del tablero de resultados: quién las define y cuándo | Dirección, en la revisión del hito H1; ajustables por `DIR` con auditoría |
+| 7 | Metas anuales del tablero de resultados: quién las define y cuándo | Dirección, en la revisión del hito H1; `DIR` las ajusta con doble control y auditoría — única excepción a su alcance de solo lectura (sección 2.2) |
 | 8 | Profundidad de la migración inicial (padrón + cartera histórica: ¿cuántos años?) | Padrón completo + cartera de los últimos 2 años; histórico anterior como archivo |
 | 9 | Opción A (paralelizar) u Opción B (extender) para absorber el alcance | **Decidido:** Opción A, re-calibración en H2 |
