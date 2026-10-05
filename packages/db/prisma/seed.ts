@@ -7,6 +7,12 @@
  */
 import { PrismaClient, Segment } from "@prisma/client";
 
+/* Usuarios con correos conocidos y roles altos: en producción serían una
+   puerta de entrada. La semilla se niega a correr ahí. */
+if (process.env.NODE_ENV === "production") {
+  throw new Error("La semilla sintética no corre con NODE_ENV=production.");
+}
+
 const prisma = new PrismaClient();
 
 const ROLES = [
@@ -98,8 +104,8 @@ async function main() {
       website: "datalabsandina.co",
       contacts: {
         create: [
-          { name: "Camilo Restrepo", email: "camilo.restrepo@datalabsandina.co", phone: "+57 310 555 1420", jobTitle: "Gerente General" },
-          { name: "Diana Salazar", email: "diana.salazar@datalabsandina.co", phone: "+57 320 555 8891", jobTitle: "Líder de Talento Humano" },
+          { name: "Camilo Restrepo", email: "camilo.restrepo@datalabs-andina.test", phone: "+57 310 555 1420", jobTitle: "Gerente General" },
+          { name: "Diana Salazar", email: "diana.salazar@datalabs-andina.test", phone: "+57 320 555 8891", jobTitle: "Líder de Talento Humano" },
         ],
       },
       memberships: {
@@ -150,8 +156,8 @@ const USUARIOS_DEV = [
   { email: "superadmin1@fedesoft-dev.test", name: "Super Admin Uno", internalRole: "super-admin" },
   { email: "superadmin2@fedesoft-dev.test", name: "Super Admin Dos", internalRole: "super-admin" },
   { email: "operaciones@fedesoft-dev.test", name: "Operaciones Dev", internalRole: "operaciones" },
-  { email: "camilo.restrepo@datalabsandina.co", name: "Camilo Restrepo", orgRole: "gerente" },
-  { email: "diana.salazar@datalabsandina.co", name: "Diana Salazar", orgRole: "talento" },
+  { email: "camilo.restrepo@datalabs-andina.test", name: "Camilo Restrepo", orgRole: "gerente" },
+  { email: "diana.salazar@datalabs-andina.test", name: "Diana Salazar", orgRole: "talento" },
 ] as const;
 
 async function sembrarIdentidad(organizationId: string) {

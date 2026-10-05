@@ -1,4 +1,4 @@
-import { ForbiddenException, Injectable, NestMiddleware } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NestMiddleware } from "@nestjs/common";
 import type { NextFunction, Request, Response } from "express";
 import { isConsoleRoute } from "../../common/permissions.js";
 import type { ActorContext } from "../../common/deny-by-default.guard.js";
@@ -30,6 +30,12 @@ export class SessionMiddleware implements NestMiddleware {
 
   async use(req: AuthenticatedRequest, res: Response, next: NextFunction): Promise<void> {
     try {
+      /* Solo forma "origin" (`/ruta`). Una URL absoluta en la línea de petición
+         (`GET http://host/admin/...`) es legal en HTTP pero ningún navegador la
+         envía a un servidor de origen: aquí solo sirve para confundir reglas. */
+      if (!req.originalUrl.startsWith("/")) {
+        return next(new BadRequestException("Forma de petición no admitida."));
+      }
       const channel = isConsoleRoute(req.originalUrl) ? "CONSOLA" : "PORTAL";
       const token = parseCookies(req.headers.cookie)[SESSION_COOKIE[channel]];
       if (!token) return next();

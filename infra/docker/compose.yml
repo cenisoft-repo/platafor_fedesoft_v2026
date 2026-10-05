@@ -46,7 +46,9 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: fedesoft_local
-    ports: ["8080:8080"]
+    # Solo en la máquina local: la consola de administración usa una
+    # contraseña conocida.
+    ports: ["127.0.0.1:8080:8080"]
     volumes: ["./keycloak:/opt/keycloak/data/import:ro"]
 
 volumes:

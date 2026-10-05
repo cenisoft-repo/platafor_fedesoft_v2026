@@ -115,6 +115,12 @@ export class SessionService {
     return r.count;
   }
 
+  /** Revoca la sesión de un token presentado (p. ej. la anterior al volver a entrar). */
+  async revokeToken(token: string | undefined, reason: string): Promise<void> {
+    if (!token || !TOKEN_FORMAT.test(token)) return;
+    await this.revoke({ tokenHash: sha256Hex(token) }, reason);
+  }
+
   /**
    * Cambia la empresa activa (RF-IDE-003). Es el único punto donde un
    * identificador de empresa llega del cliente, y por eso se verifica contra
@@ -187,6 +193,22 @@ export class SessionService {
           ).map((v) => ({ ...v.organization, role: v.role }))
         : [];
 
+    /* Invitaciones vigentes: la persona decide si las acepta (hallazgo A5 M1). */
+    const pendingInvitations =
+      session.channel === "PORTAL"
+        ? (
+            await this.prisma.organizationUser.findMany({
+              where: { userId: actor.userId, status: "INVITADO", inviteExpiresAt: { gt: new Date() } },
+              select: {
+                inviteExpiresAt: true,
+                role: { select: { key: true, name: true } },
+                organization: { select: { id: true, legalName: true, tradeName: true } },
+              },
+              orderBy: { createdAt: "asc" },
+            })
+          ).map((v) => ({ ...v.organization, role: v.role, expiresAt: v.inviteExpiresAt?.toISOString() ?? null }))
+        : [];
+
     return {
       user: usuario,
       channel: session.channel,
@@ -194,6 +216,7 @@ export class SessionService {
       expiresAt: session.expiresAt.toISOString(),
       activeOrganization: organizations.find((o) => o.id === actor.organizationId) ?? null,
       organizations,
+      pendingInvitations,
       permissions: actor.permissions,
     };
   }

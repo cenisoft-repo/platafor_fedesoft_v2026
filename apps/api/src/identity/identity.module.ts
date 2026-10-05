@@ -1,5 +1,4 @@
 import { Module } from "@nestjs/common";
-import { ThrottlerModule } from "@nestjs/throttler";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { AuditService } from "../common/audit.service.js";
 import { OutboxService } from "../outbox/outbox.service.js";
@@ -25,11 +24,6 @@ import { AdminUsersController } from "./admin-users.controller.js";
  * adaptador del mismo puerto. Ningún caso de uso se entera.
  */
 @Module({
-  imports: [
-    /* En memoria: suficiente con una instancia. Con varias réplicas, el
-       almacenamiento pasa a Redis (deuda registrada en ADR-008). */
-    ThrottlerModule.forRoot([{ ttl: 60_000, limit: 60 }]),
-  ],
   controllers: [PortalAuthController, ConsoleAuthController, OrganizationUsersController, AdminUsersController],
   providers: [
     PrismaService,
@@ -52,6 +46,7 @@ import { AdminUsersController } from "./admin-users.controller.js";
           clientSecret: env.OIDC_CLIENT_SECRET,
           mfaValues: env.OIDC_MFA_VALUES.split(",").map((v) => v.trim()).filter(Boolean),
           mfaAcrRequest: env.OIDC_MFA_ACR_REQUEST,
+          mfaMaxAgeSec: env.OIDC_CONSOLE_MAX_AGE_SEC,
         });
       },
     },

@@ -1,6 +1,7 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { PATH_METADATA } from "@nestjs/common/constants";
 import { Reflector } from "@nestjs/core";
-import { AUTHENTICATED_KEY, PERMISSION_KEY, PUBLIC_KEY, grants, isConsoleRoute } from "./permissions.js";
+import { AUTHENTICATED_KEY, PERMISSION_KEY, PUBLIC_KEY, grants, isConsoleController } from "./permissions.js";
 
 export interface ActorContext {
   userId: string;
@@ -19,9 +20,9 @@ export interface ActorContext {
  * regla del proyecto — la autorización vive en el servidor, y ocultar un
  * botón en el frontend no es un control.
  *
- * El actor lo pone `SessionMiddleware` a partir de la cookie de sesión. Las
- * rutas `/admin/*` solo aceptan actores internos: aunque una sesión del portal
- * llegara con permisos suficientes, la consola no la reconoce.
+ * El actor lo pone `SessionMiddleware` a partir de la cookie de sesión. Los
+ * controladores de la consola solo aceptan actores internos, y los del portal
+ * solo externos. La superficie sale del controlador resuelto, no de la URL.
  */
 @Injectable()
 export class DenyByDefaultGuard implements CanActivate {
@@ -40,15 +41,13 @@ export class DenyByDefaultGuard implements CanActivate {
       );
     }
 
-    const request = context
-      .switchToHttp()
-      .getRequest<{ actor?: ActorContext; originalUrl?: string; url?: string }>();
-    const actor = request.actor;
+    const actor = context.switchToHttp().getRequest<{ actor?: ActorContext }>().actor;
     /* 401 y no 403: el cliente necesita distinguir "inicia sesión" de "no
        tienes permiso" para llevar al usuario al lugar correcto. */
     if (!actor) throw new UnauthorizedException("Sin sesión.");
 
-    if (isConsoleRoute(request.originalUrl ?? request.url) !== actor.internal) {
+    const consola = isConsoleController(Reflect.getMetadata(PATH_METADATA, context.getClass()));
+    if (consola !== actor.internal) {
       throw new ForbiddenException("Esta sesión no es válida para esta superficie.");
     }
 

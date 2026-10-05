@@ -1,4 +1,10 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+} from "@nestjs/common";
 import { Prisma } from "@fedesoft/db";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { AuditService } from "../../common/audit.service.js";
@@ -14,6 +20,15 @@ export interface OrgActor {
   userId: string;
   /** Sale de la sesión, nunca del cuerpo de la petición. */
   organizationId: string;
+  /** Permisos del actor en esa empresa: techo de lo que puede otorgar. */
+  permissions: readonly string[];
+}
+
+/** Lo mínimo para responder a una invitación propia. */
+export interface InviteeActor {
+  userId: string;
+  sessionId?: string | null | undefined;
+  organizationId: string | null;
 }
 
 export interface InviteInput {
@@ -31,6 +46,10 @@ export interface InviteInput {
  *
  * Las mutaciones toman un bloqueo sobre la fila de la empresa: dos gerentes
  * desactivándose a la vez no pueden dejarla sin administrador.
+ *
+ * Una invitación no da acceso por sí sola: la persona la acepta de forma
+ * explícita después de entrar (hallazgo A5 M1). Hasta entonces no se crea su
+ * contacto en la empresa ni ve sus datos.
  */
 @Injectable()
 export class OrganizationUsersUseCase {
@@ -72,7 +91,7 @@ export class OrganizationUsersUseCase {
     }));
   }
 
-  /** Invitar o reenviar una invitación. Entrar con ese correo la acepta. */
+  /** Invitar o reenviar una invitación pendiente. */
   async invite(actor: OrgActor, input: InviteInput, ctx: RequestContext) {
     const email = input.email.trim().toLowerCase();
     const ahora = new Date();
@@ -82,6 +101,7 @@ export class OrganizationUsersUseCase {
     return this.prisma.$transaction(async (tx) => {
       await this.bloquearEmpresa(tx, actor.organizationId);
       const rol = await this.rolDeEmpresa(tx, input.roleKey);
+      this.exigirTecho(actor, rol);
 
       const usuario = await tx.user.upsert({
         where: { email },
@@ -95,29 +115,26 @@ export class OrganizationUsersUseCase {
       if (actual?.status === "ACTIVO") {
         throw new ConflictException("Esa persona ya tiene acceso activo a la empresa.");
       }
+      if (actual?.status === "DESACTIVADO") {
+        /* Reinvitar no es un atajo para reactivar: reactivar exige user:manage. */
+        throw new ConflictException("Esa persona tiene el acceso desactivado: reactívalo en lugar de invitarla.");
+      }
 
-      /* El contacto es la fuente de verdad de la persona dentro de la empresa:
-         se reutiliza si existe y se crea si no (un contacto puede existir sin
-         usuario, no al revés). */
-      const contacto = await tx.contact.upsert({
+      /* Solo se enlaza un contacto que la empresa YA tenía. Crear uno con el
+         nombre que escriba el gerente para un correo ajeno sería tratar datos
+         de alguien que aún no ha aceptado nada. */
+      const contacto = await tx.contact.findUnique({
         where: { organizationId_email: { organizationId: actor.organizationId, email } },
-        update: {},
-        create: { organizationId: actor.organizationId, email, name: input.name },
+        select: { id: true },
       });
 
       const vinculo = await tx.organizationUser.upsert({
         where: { organizationId_userId: { organizationId: actor.organizationId, userId: usuario.id } },
-        update: {
-          status: "INVITADO",
-          roleId: rol.id,
-          contactId: contacto.id,
-          inviteExpiresAt: expira,
-          invitedByUserId: actor.userId,
-        },
+        update: { roleId: rol.id, contactId: contacto?.id ?? null, inviteExpiresAt: expira, invitedByUserId: actor.userId },
         create: {
           organizationId: actor.organizationId,
           userId: usuario.id,
-          contactId: contacto.id,
+          contactId: contacto?.id ?? null,
           roleId: rol.id,
           status: "INVITADO",
           inviteExpiresAt: expira,
@@ -149,6 +166,80 @@ export class OrganizationUsersUseCase {
     });
   }
 
+  /**
+   * La persona acepta una invitación propia. Solo ahora se enlaza o crea su
+   * contacto en la empresa. Si la sesión aún no tenía empresa activa, pasa a
+   * ser esta.
+   */
+  async acceptInvitation(actor: InviteeActor, organizationId: string, ctx: RequestContext) {
+    return this.prisma.$transaction(async (tx) => {
+      await this.bloquearEmpresa(tx, organizationId);
+      const ahora = new Date();
+      const vinculo = await tx.organizationUser.findUnique({
+        where: { organizationId_userId: { organizationId, userId: actor.userId } },
+        include: { user: { select: { email: true, name: true } } },
+      });
+      if (!vinculo || vinculo.status !== "INVITADO" || (vinculo.inviteExpiresAt ?? ahora) <= ahora) {
+        /* Mismo mensaje para "no existe", "ya respondida" y "vencida". */
+        throw new NotFoundException("No tienes una invitación vigente de esa empresa.");
+      }
+
+      const contacto =
+        vinculo.contactId ??
+        (
+          await tx.contact.upsert({
+            where: { organizationId_email: { organizationId, email: vinculo.user.email } },
+            update: {},
+            create: {
+              organizationId,
+              email: vinculo.user.email,
+              name: vinculo.user.name ?? vinculo.user.email.split("@")[0] ?? vinculo.user.email,
+            },
+            select: { id: true },
+          })
+        ).id;
+
+      await tx.organizationUser.update({
+        where: { id: vinculo.id },
+        data: { status: "ACTIVO", inviteExpiresAt: null, contactId: contacto },
+      });
+      if (actor.sessionId && !actor.organizationId) {
+        await tx.session.update({ where: { id: actor.sessionId }, data: { organizationId } });
+      }
+      await this.audit.record(tx, {
+        actor: `usuario:${actor.userId}`,
+        actorUserId: actor.userId,
+        organizationId,
+        action: "identity.invitation.accepted",
+        objectType: "OrganizationUser",
+        objectId: vinculo.id,
+        ipAddress: ctx.ip ?? null,
+        correlationId: ctx.correlationId ?? null,
+      });
+      return { organizationId, status: "ACTIVO" as const };
+    });
+  }
+
+  /** Rechazar borra el vínculo pendiente; la auditoría conserva la historia. */
+  async declineInvitation(actor: InviteeActor, organizationId: string, ctx: RequestContext) {
+    return this.prisma.$transaction(async (tx) => {
+      const borrado = await tx.organizationUser.deleteMany({
+        where: { organizationId, userId: actor.userId, status: "INVITADO" },
+      });
+      if (borrado.count === 0) throw new NotFoundException("No tienes una invitación vigente de esa empresa.");
+      await this.audit.record(tx, {
+        actor: `usuario:${actor.userId}`,
+        actorUserId: actor.userId,
+        organizationId,
+        action: "identity.invitation.declined",
+        objectType: "OrganizationUser",
+        ipAddress: ctx.ip ?? null,
+        correlationId: ctx.correlationId ?? null,
+      });
+      return { organizationId, declined: true };
+    });
+  }
+
   /** El desactivado pierde el acceso de inmediato: sus sesiones en esta empresa se revocan. */
   async deactivate(actor: OrgActor, userId: string, ctx: RequestContext) {
     return this.prisma.$transaction(async (tx) => {
@@ -158,6 +249,14 @@ export class OrganizationUsersUseCase {
         throw new ConflictException("No puedes desactivar tu propio acceso.");
       }
       if (vinculo.status === "DESACTIVADO") return { userId, status: vinculo.status };
+
+      if (vinculo.status === "INVITADO") {
+        /* Retirar una invitación la borra. Si quedara DESACTIVADA, "reactivar"
+           daría acceso a alguien que nunca aceptó. */
+        await tx.organizationUser.delete({ where: { id: vinculo.id } });
+        await this.registrar(tx, actor, ctx, "identity.invitation.revoked", vinculo.id, { userId });
+        return { userId, status: "REVOCADA" as const };
+      }
 
       if (vinculo.status === "ACTIVO" && grants(vinculo.role.permissions, PERMISO_ADMINISTRAR)) {
         await this.exigirOtroAdministrador(tx, actor.organizationId, userId);
@@ -204,6 +303,7 @@ export class OrganizationUsersUseCase {
         throw new ConflictException("No puedes cambiar tu propio rol.");
       }
       const rol = await this.rolDeEmpresa(tx, roleKey);
+      this.exigirTecho(actor, rol);
       if (rol.id === vinculo.roleId) return { userId, role: rol.key };
 
       const pierdeAdministracion =
@@ -236,6 +336,17 @@ export class OrganizationUsersUseCase {
       select: { key: true, name: true },
       orderBy: { name: "asc" },
     });
+  }
+
+  /**
+   * Un rol que invita o administra usuarios solo lo otorga quien administra
+   * usuarios: con `user:invite` a secas no se fabrica un gerente (hallazgo A5 M2).
+   */
+  private exigirTecho(actor: OrgActor, rol: { permissions: string[] }) {
+    const administra = grants(rol.permissions, "user:invite") || grants(rol.permissions, PERMISO_ADMINISTRAR);
+    if (administra && !grants(actor.permissions, PERMISO_ADMINISTRAR)) {
+      throw new ForbiddenException("Solo quien administra usuarios puede otorgar un rol que administra usuarios.");
+    }
   }
 
   private async bloquearEmpresa(tx: Prisma.TransactionClient, organizationId: string) {

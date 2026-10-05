@@ -14,7 +14,7 @@ export interface AuthorizationRequest {
   nonce: string;
   /** S256 del verificador PKCE. */
   codeChallenge: string;
-  /** Pedir segundo factor al proveedor (entrada a la consola). */
+  /** Pedir segundo factor y autenticación reciente (entrada a la consola). */
   requireMfa: boolean;
 }
 
@@ -24,6 +24,8 @@ export interface CodeExchange {
   codeVerifier: string;
   /** El que se envió al iniciar: el ID token debe traerlo de vuelta. */
   nonce: string;
+  /** Exigir que la autenticación sea reciente (`auth_time` dentro de `max_age`). */
+  requireMfa: boolean;
 }
 
 /** Afirmaciones ya verificadas (firma, emisor, audiencia, vigencia, nonce). */

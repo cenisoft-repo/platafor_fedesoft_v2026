@@ -1,10 +1,11 @@
-import { Body, Controller, Get, HttpCode, Post, Query, Req, Res, UseGuards, VERSION_NEUTRAL } from "@nestjs/common";
+import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Post, Query, Req, Res, VERSION_NEUTRAL } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
-import { Throttle, ThrottlerGuard } from "@nestjs/throttler";
+import { Throttle } from "@nestjs/throttler";
 import { IsUUID } from "class-validator";
 import type { Response } from "express";
 import { Authenticated, Public } from "../common/permissions.js";
 import { SessionService } from "./domain/session.service.js";
+import { OrganizationUsersUseCase } from "./domain/organization-users.use-case.js";
 import { AuthHttpService } from "./http/auth-http.service.js";
 import type { AuthenticatedRequest } from "./http/session.middleware.js";
 
@@ -13,18 +14,18 @@ class SelectOrganizationDto {
   organizationId!: string;
 }
 
-/* Límite por IP en los endpoints que inician o completan un login: frena el
-   abuso sin estorbar a una persona que se equivoca de contraseña (eso lo
-   limita el proveedor, que es quien la valida). */
+/* Límite más estricto en los endpoints que inician o completan un login: frena
+   el abuso sin estorbar a quien se equivoca de contraseña (eso lo limita el
+   proveedor, que es quien la valida). El guard global es ActorThrottlerGuard. */
 const LIMITE_LOGIN = { default: { limit: 10, ttl: 60_000 } };
 
 @ApiTags("identidad")
-@UseGuards(ThrottlerGuard)
 @Controller({ path: "auth", version: "1" })
 export class PortalAuthController {
   constructor(
     private readonly http: AuthHttpService,
     private readonly sessions: SessionService,
+    private readonly invitaciones: OrganizationUsersUseCase,
   ) {}
 
   @Get("login")
@@ -61,6 +62,30 @@ export class PortalAuthController {
     });
   }
 
+  /* El identificador de empresa de la ruta nombra la invitación a responder;
+     el caso de uso verifica que sea del usuario en sesión. */
+  @Post("invitations/:organizationId/accept")
+  @Authenticated()
+  @HttpCode(200)
+  @ApiOperation({ summary: "Acepta una invitación propia. Si no había empresa activa, pasa a ser esta." })
+  async accept(@Param("organizationId", new ParseUUIDPipe()) organizationId: string, @Req() req: AuthenticatedRequest) {
+    return this.invitaciones.acceptInvitation(actorDe(req), organizationId, {
+      correlationId: req.correlationId ?? null,
+      ip: req.ip ?? null,
+    });
+  }
+
+  @Post("invitations/:organizationId/decline")
+  @Authenticated()
+  @HttpCode(200)
+  @ApiOperation({ summary: "Rechaza una invitación propia." })
+  async decline(@Param("organizationId", new ParseUUIDPipe()) organizationId: string, @Req() req: AuthenticatedRequest) {
+    return this.invitaciones.declineInvitation(actorDe(req), organizationId, {
+      correlationId: req.correlationId ?? null,
+      ip: req.ip ?? null,
+    });
+  }
+
   @Post("logout")
   @Authenticated()
   @HttpCode(200)
@@ -71,7 +96,6 @@ export class PortalAuthController {
 }
 
 @ApiTags("consola · identidad")
-@UseGuards(ThrottlerGuard)
 @Controller({ path: "admin/v1/auth", version: VERSION_NEUTRAL })
 export class ConsoleAuthController {
   constructor(

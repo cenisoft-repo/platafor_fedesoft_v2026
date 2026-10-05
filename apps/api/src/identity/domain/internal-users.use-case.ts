@@ -1,7 +1,8 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { Prisma } from "@fedesoft/db";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { AuditService } from "../../common/audit.service.js";
+import { canDelegate } from "../../common/permissions.js";
 import { SessionService, type RequestContext } from "./session.service.js";
 
 /**
@@ -14,6 +15,8 @@ export const MIN_SUPER_ADMINS = 2;
 
 export interface ConsoleActor {
   userId: string;
+  /** Techo de lo que puede otorgar. */
+  permissions: readonly string[];
 }
 
 /**
@@ -209,9 +212,19 @@ export class InternalUsersUseCase {
     tx: Prisma.TransactionClient,
     actor: ConsoleActor,
     userId: string,
-    rol: { id: string; key: string },
+    rol: { id: string; key: string; permissions: string[] },
     ctx: RequestContext,
   ) {
+    if (userId === actor.userId) {
+      throw new ForbiddenException("Nadie se asigna roles a sí mismo.");
+    }
+    /* Techo: nadie reparte permisos que no tiene. Hoy solo super-admin tiene
+       role:assign; esto evita que un rol nuevo con role:assign se convierta
+       en una puerta a super-admin. */
+    const excede = rol.permissions.filter((p) => !canDelegate(actor.permissions, p));
+    if (excede.length > 0) {
+      throw new ForbiddenException(`No puedes otorgar permisos que no tienes: ${excede.join(", ")}.`);
+    }
     try {
       await tx.userInternalRole.create({ data: { userId, roleId: rol.id, grantedByUserId: actor.userId } });
     } catch (e) {
@@ -246,7 +259,9 @@ export class InternalUsersUseCase {
       where: {
         role: { key: SUPER_ADMIN_ROLE },
         userId: { not: userId },
-        user: { status: { not: "BLOQUEADO" } },
+        /* Solo cuentan los que pueden operar de verdad: activos y con su
+           identidad ya vinculada (hallazgo A5 B9). */
+        user: { status: "ACTIVO", authSubject: { not: null } },
       },
     });
     if (restantes < MIN_SUPER_ADMINS) {

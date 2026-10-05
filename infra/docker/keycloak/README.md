@@ -11,8 +11,8 @@ Proveedor OIDC local para el login del portal y la consola (ADR-008). **Solo par
 | `superadmin1@fedesoft-dev.test` | Super Admin | TOTP ya configurado (secreto abajo) |
 | `superadmin2@fedesoft-dev.test` | Super Admin | Keycloak pide configurarlo al entrar |
 | `operaciones@fedesoft-dev.test` | Operaciones | Keycloak pide configurarlo al entrar |
-| `camilo.restrepo@datalabsandina.co` | Gerente (Datalabs Andina) | — |
-| `diana.salazar@datalabsandina.co` | Talento (Datalabs Andina) | — |
+| `camilo.restrepo@datalabs-andina.test` | Gerente (Datalabs Andina) | — |
+| `diana.salazar@datalabs-andina.test` | Talento (Datalabs Andina) | — |
 
 Secreto TOTP de `superadmin1`, para añadirlo a una app autenticadora (base32): `MZSWIZLTN5THILLEMV3C25DPORYC243PNRXS23DPMNQWY`.
 

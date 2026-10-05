@@ -8,7 +8,7 @@
 import test, { after } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { ConflictException, ForbiddenException, NotFoundException, BadRequestException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, NotFoundException } from "@nestjs/common";
 import { PrismaClient, type SessionChannel } from "@fedesoft/db";
 import { AuditService } from "../src/common/audit.service.js";
 import { OutboxService } from "../src/outbox/outbox.service.js";
@@ -56,6 +56,8 @@ const orgUsers = new OrganizationUsersUseCase(prisma as never, audit, new Outbox
 const internos = new InternalUsersUseCase(prisma as never, audit, sessions);
 const URLS = { callbackUrl: "http://api.test/v1/auth/callback", appUrl: "http://portal.test" };
 const CTX = { correlationId: "prueba-identidad", ip: "127.0.0.1" };
+const GERENTE_PERMS = ["organization:read", "billing:*", "user:read", "user:invite", "user:manage"];
+const SA_PERMS = ["*", "role:assign"];
 
 const sufijo = () => randomUUID().slice(0, 8);
 
@@ -181,10 +183,15 @@ test("se rechazan correo sin verificar, correo desconocido, identidad en conflic
   const bloqueado = await usuario({ org: org.id, status: "BLOQUEADO" });
   await rechazo(entrar("PORTAL", identidad(bloqueado)), "cuenta-bloqueada");
 
+  /* Se audita el hash del correo, nunca el correo en claro. */
   const auditados = await prisma.auditEvent.count({
-    where: { action: "identity.login.rejected", metadata: { path: ["email"], equals: u.email } },
+    where: { action: "identity.login.rejected", metadata: { path: ["emailHash"], equals: sha256Hex(u.email) } },
   });
   assert.ok(auditados >= 2);
+  const enClaro = await prisma.auditEvent.count({
+    where: { action: "identity.login.rejected", metadata: { path: ["email"], equals: u.email } },
+  });
+  assert.equal(enClaro, 0);
 });
 
 test("la consola exige rol interno y segundo factor; el portal y la consola no comparten sesión", async () => {
@@ -273,34 +280,60 @@ test("si el vínculo deja de estar activo por cualquier vía, la sesión deja de
 
 /* ──────────────────── Gestión de usuarios de la empresa ──────────────────── */
 
-test("el gerente invita; entrar con el correo invitado acepta la invitación", async () => {
+test("el gerente invita y la persona acepta de forma explícita tras entrar", async () => {
   const org = await empresa();
   const gerente = await usuario({ org: org.id });
   const email = `invitada.${sufijo()}@identidad.test`;
+  const actor = { userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS };
 
-  const r = await orgUsers.invite(
-    { userId: gerente.id, organizationId: org.id },
-    { email: email.toUpperCase(), name: "Persona Invitada", roleKey: "talento" },
-    CTX,
-  );
+  const r = await orgUsers.invite(actor, { email: email.toUpperCase(), name: "Persona Invitada", roleKey: "talento" }, CTX);
   assert.equal(r.status, "INVITADO");
-
-  const contacto = await prisma.contact.findUniqueOrThrow({ where: { organizationId_email: { organizationId: org.id, email } } });
-  assert.equal(contacto.name, "Persona Invitada");
+  /* Hasta que acepte no se crea su contacto: el gerente no trata datos de
+     alguien que no ha aceptado nada (hallazgo A5 M1). */
+  assert.equal(await prisma.contact.count({ where: { organizationId: org.id, email } }), 0);
   const evento = await prisma.outboxMessage.findFirst({ where: { eventType: "identity.user.invited", payload: { path: ["email"], equals: email } } });
   assert.ok(evento, "la invitación debe dejar un evento para el correo");
+  assert.equal((await orgUsers.list(org.id)).find((f) => f.email === email)?.status, "INVITADO");
 
-  const lista = await orgUsers.list(org.id);
-  assert.equal(lista.find((f) => f.email === email)?.status, "INVITADO");
+  /* Entrar no acepta: la sesión existe, sin empresa ni permisos, y muestra la invitación. */
+  const token = await entrar("PORTAL", { subject: `sub-${randomUUID()}`, email, emailVerified: true, name: "Nombre Propio", mfa: false });
+  const s1 = await sessions.authenticate(token, "PORTAL");
+  assert.ok(s1);
+  assert.equal(s1.actor.organizationId, null);
+  assert.deepEqual(s1.actor.permissions, []);
+  const vista = await sessions.view(s1.actor, s1.session);
+  assert.deepEqual(vista.pendingInvitations.map((i) => i.id), [org.id]);
 
-  const token = await entrar("PORTAL", { subject: `sub-${randomUUID()}`, email, emailVerified: true, name: null, mfa: false });
-  const s = await sessions.authenticate(token, "PORTAL");
-  assert.equal(s?.actor.organizationId, org.id);
-  assert.ok(s?.actor.permissions.includes("training:*"));
+  await orgUsers.acceptInvitation(s1.actor, org.id, CTX);
+  const s2 = await sessions.authenticate(token, "PORTAL");
+  assert.equal(s2?.actor.organizationId, org.id);
+  assert.ok(s2?.actor.permissions.includes("training:*"));
+  const contacto = await prisma.contact.findUniqueOrThrow({ where: { organizationId_email: { organizationId: org.id, email } } });
+  assert.equal(contacto.name, "Persona Invitada");
+  await assert.rejects(orgUsers.acceptInvitation(s1.actor, org.id, CTX), NotFoundException);
 
-  await assert.rejects(
-    orgUsers.invite({ userId: gerente.id, organizationId: org.id }, { email, name: "Otra vez", roleKey: "talento" }, CTX),
-    ConflictException,
+  await assert.rejects(orgUsers.invite(actor, { email, name: "Otra vez", roleKey: "talento" }, CTX), ConflictException);
+});
+
+test("una invitación de otra empresa no se cuela en la cuenta de quien ya trabaja con otra", async () => {
+  const propia = await empresa();
+  const intrusa = await empresa();
+  const persona = await usuario({ org: propia.id, rol: "gerente" });
+  const gerenteIntruso = await usuario({ org: intrusa.id });
+  await orgUsers.invite(
+    { userId: gerenteIntruso.id, organizationId: intrusa.id, permissions: GERENTE_PERMS },
+    { email: persona.email, name: "Nombre Inventado", roleKey: "contacto" },
+    CTX,
+  );
+  const s = await sessions.authenticate(await entrar("PORTAL", identidad(persona)), "PORTAL");
+  /* Sigue entrando a su empresa; la otra queda como invitación que puede rechazar. */
+  assert.equal(s?.actor.organizationId, propia.id);
+  assert.equal(await prisma.contact.count({ where: { organizationId: intrusa.id, email: persona.email } }), 0);
+  assert.ok(s);
+  await orgUsers.declineInvitation(s.actor, intrusa.id, CTX);
+  assert.equal(
+    await prisma.organizationUser.count({ where: { organizationId: intrusa.id, userId: persona.id } }),
+    0,
   );
 });
 
@@ -308,7 +341,7 @@ test("una invitación vencida no da acceso", async () => {
   const org = await empresa();
   const gerente = await usuario({ org: org.id });
   const email = `vencida.${sufijo()}@identidad.test`;
-  const r = await orgUsers.invite({ userId: gerente.id, organizationId: org.id }, { email, name: "Vencida", roleKey: "contacto" }, CTX);
+  const r = await orgUsers.invite({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, { email, name: "Vencida", roleKey: "contacto" }, CTX);
   await prisma.organizationUser.update({
     where: { organizationId_userId: { organizationId: org.id, userId: r.userId } },
     data: { inviteExpiresAt: new Date(Date.now() - 1000) },
@@ -316,15 +349,40 @@ test("una invitación vencida no da acceso", async () => {
   await rechazo(entrar("PORTAL", { subject: `sub-${randomUUID()}`, email, emailVerified: true, name: null, mfa: false }), "sin-empresa");
 });
 
+test("con user:invite a secas no se fabrica un gerente, ni se reactiva a un desactivado", async () => {
+  const org = await empresa();
+  const gerente = await usuario({ org: org.id });
+  const soloInvita = { userId: gerente.id, organizationId: org.id, permissions: ["user:invite"] };
+  await assert.rejects(
+    orgUsers.invite(soloInvita, { email: `alias.${sufijo()}@i.test`, name: "Alias Propio", roleKey: "gerente" }, CTX),
+    ForbiddenException,
+  );
+  await orgUsers.invite(soloInvita, { email: `ok.${sufijo()}@i.test`, name: "Contacto Normal", roleKey: "contacto" }, CTX);
+
+  const talento = await usuario({ org: org.id, rol: "talento" });
+  const actor = { userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS };
+  await orgUsers.deactivate(actor, talento.id, CTX);
+  await assert.rejects(orgUsers.invite(actor, { email: talento.email, name: "Reinvitar", roleKey: "talento" }, CTX), ConflictException);
+});
+
+test("retirar una invitación la borra: reactivar no da acceso a quien nunca aceptó", async () => {
+  const org = await empresa();
+  const gerente = await usuario({ org: org.id });
+  const actor = { userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS };
+  const r = await orgUsers.invite(actor, { email: `retirada.${sufijo()}@i.test`, name: "Retirada", roleKey: "contacto" }, CTX);
+  assert.equal((await orgUsers.deactivate(actor, r.userId, CTX)).status, "REVOCADA");
+  await assert.rejects(orgUsers.reactivate(actor, r.userId, CTX), NotFoundException);
+});
+
 test("el gerente no puede asignar roles internos", async () => {
   const org = await empresa();
   const gerente = await usuario({ org: org.id });
   await assert.rejects(
-    orgUsers.invite({ userId: gerente.id, organizationId: org.id }, { email: `x.${sufijo()}@i.test`, name: "Escalada", roleKey: SUPER_ADMIN_ROLE }, CTX),
+    orgUsers.invite({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, { email: `x.${sufijo()}@i.test`, name: "Escalada", roleKey: SUPER_ADMIN_ROLE }, CTX),
     BadRequestException,
   );
   const talento = await usuario({ org: org.id, rol: "talento" });
-  await assert.rejects(orgUsers.changeRole({ userId: gerente.id, organizationId: org.id }, talento.id, "operaciones", CTX), BadRequestException);
+  await assert.rejects(orgUsers.changeRole({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, talento.id, "operaciones", CTX), BadRequestException);
 });
 
 test("desactivar a un usuario cierra sus sesiones en la empresa de inmediato", async () => {
@@ -334,11 +392,11 @@ test("desactivar a un usuario cierra sus sesiones en la empresa de inmediato", a
   const token = await entrar("PORTAL", identidad(talento));
   assert.ok(await sessions.authenticate(token, "PORTAL"));
 
-  await orgUsers.deactivate({ userId: gerente.id, organizationId: org.id }, talento.id, CTX);
+  await orgUsers.deactivate({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, talento.id, CTX);
   assert.equal(await sessions.authenticate(token, "PORTAL"), null);
   await rechazo(entrar("PORTAL", identidad(talento)), "sin-empresa");
 
-  await orgUsers.reactivate({ userId: gerente.id, organizationId: org.id }, talento.id, CTX);
+  await orgUsers.reactivate({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, talento.id, CTX);
   assert.ok(await sessions.authenticate(await entrar("PORTAL", identidad(talento)), "PORTAL"));
 });
 
@@ -348,7 +406,7 @@ test("cambiar el rol invalida las sesiones del afectado (RF-IDE-008)", async () 
   const otro = await usuario({ org: org.id, rol: "gerente" });
   const token = await entrar("PORTAL", identidad(otro));
 
-  await orgUsers.changeRole({ userId: gerente.id, organizationId: org.id }, otro.id, "contacto", CTX);
+  await orgUsers.changeRole({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, otro.id, "contacto", CTX);
   assert.equal(await sessions.authenticate(token, "PORTAL"), null);
   const nueva = await sessions.authenticate(await entrar("PORTAL", identidad(otro)), "PORTAL");
   assert.ok(!nueva?.actor.permissions.includes("billing:*"));
@@ -357,7 +415,7 @@ test("cambiar el rol invalida las sesiones del afectado (RF-IDE-008)", async () 
 test("la empresa nunca se queda sin quien administre usuarios, y nadie se desactiva a sí mismo", async () => {
   const org = await empresa();
   const gerente = await usuario({ org: org.id });
-  const actor = { userId: gerente.id, organizationId: org.id };
+  const actor = { userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS };
   await assert.rejects(orgUsers.deactivate(actor, gerente.id, CTX), ConflictException);
   await assert.rejects(orgUsers.changeRole(actor, gerente.id, "contacto", CTX), ConflictException);
 
@@ -366,9 +424,9 @@ test("la empresa nunca se queda sin quien administre usuarios, y nadie se desact
   const segundo = await usuario({ org: org.id, rol: "gerente" });
   await orgUsers.changeRole(actor, segundo.id, "talento", CTX);
   const admin2 = await usuario({ org: org.id, rol: "gerente" });
-  await orgUsers.deactivate({ userId: admin2.id, organizationId: org.id }, gerente.id, CTX);
+  await orgUsers.deactivate({ userId: admin2.id, organizationId: org.id, permissions: GERENTE_PERMS }, gerente.id, CTX);
   await assert.rejects(
-    orgUsers.deactivate({ userId: gerente.id, organizationId: org.id }, admin2.id, CTX),
+    orgUsers.deactivate({ userId: gerente.id, organizationId: org.id, permissions: GERENTE_PERMS }, admin2.id, CTX),
     ConflictException,
   );
 });
@@ -379,7 +437,7 @@ test("aislamiento: un gerente no ve ni toca usuarios de otra empresa", async () 
   const gerenteA = await usuario({ org: a.id });
   const deB = await usuario({ org: b.id, rol: "talento" });
   const tokenB = await entrar("PORTAL", identidad(deB));
-  const actorA = { userId: gerenteA.id, organizationId: a.id };
+  const actorA = { userId: gerenteA.id, organizationId: a.id, permissions: GERENTE_PERMS };
 
   assert.ok(!(await orgUsers.list(a.id)).some((f) => f.userId === deB.id));
   await assert.rejects(orgUsers.deactivate(actorA, deB.id, CTX), NotFoundException);
@@ -397,12 +455,12 @@ test("bloquear una cuenta cierra todas sus sesiones y le impide entrar", async (
   const u = await usuario({ org: org.id });
   const token = await entrar("PORTAL", identidad(u));
 
-  await internos.block({ userId: sa.id }, u.id, "Prueba de bloqueo", CTX);
+  await internos.block({ userId: sa.id, permissions: SA_PERMS }, u.id, "Prueba de bloqueo", CTX);
   assert.equal(await sessions.authenticate(token, "PORTAL"), null);
   await rechazo(entrar("PORTAL", identidad(u)), "cuenta-bloqueada");
-  await assert.rejects(internos.block({ userId: sa.id }, sa.id, "Autobloqueo", CTX), ConflictException);
+  await assert.rejects(internos.block({ userId: sa.id, permissions: SA_PERMS }, sa.id, "Autobloqueo", CTX), ConflictException);
 
-  await internos.unblock({ userId: sa.id }, u.id, "Fin de la prueba", CTX);
+  await internos.unblock({ userId: sa.id, permissions: SA_PERMS }, u.id, "Fin de la prueba", CTX);
   assert.ok(await sessions.authenticate(await entrar("PORTAL", identidad(u)), "PORTAL"));
 });
 
@@ -411,14 +469,68 @@ test("asignar o quitar un rol interno cierra las sesiones de consola del afectad
   const op = await usuario({ interno: "operaciones" });
   const token = await entrar("CONSOLA", identidad(op, { mfa: true }));
 
-  await internos.grantRole({ userId: sa.id }, op.id, "auditor", CTX);
+  await internos.grantRole({ userId: sa.id, permissions: SA_PERMS }, op.id, "auditor", CTX);
   assert.equal(await sessions.authenticate(token, "CONSOLA"), null);
-  await assert.rejects(internos.grantRole({ userId: sa.id }, op.id, "auditor", CTX), ConflictException);
-  await assert.rejects(internos.grantRole({ userId: sa.id }, op.id, "gerente", CTX), BadRequestException);
+  await assert.rejects(internos.grantRole({ userId: sa.id, permissions: SA_PERMS }, op.id, "auditor", CTX), ConflictException);
+  await assert.rejects(internos.grantRole({ userId: sa.id, permissions: SA_PERMS }, op.id, "gerente", CTX), BadRequestException);
 
   const otro = await entrar("CONSOLA", identidad(op, { mfa: true }));
-  await internos.revokeRole({ userId: sa.id }, op.id, "auditor", CTX);
+  await internos.revokeRole({ userId: sa.id, permissions: SA_PERMS }, op.id, "auditor", CTX);
   assert.equal(await sessions.authenticate(otro, "CONSOLA"), null);
+});
+
+test("nadie se asigna roles a sí mismo ni otorga más permisos de los que tiene", async () => {
+  const sa = await usuario({ interno: SUPER_ADMIN_ROLE });
+  await assert.rejects(internos.grantRole({ userId: sa.id, permissions: SA_PERMS }, sa.id, "auditor", CTX), ForbiddenException);
+  await assert.rejects(
+    internos.provision({ userId: sa.id, permissions: SA_PERMS }, { email: sa.email, name: "Yo", roleKey: "auditor" }, CTX),
+    ForbiddenException,
+  );
+  /* Un rol futuro con role:assign pero sin `*` no puede repartir super-admin. */
+  const op = await usuario({ interno: "operaciones" });
+  const delegado = { userId: op.id, permissions: ["role:assign", "user:read"] };
+  const otro = await usuario();
+  await assert.rejects(internos.grantRole(delegado, otro.id, SUPER_ADMIN_ROLE, CTX), ForbiddenException);
+  await assert.rejects(internos.grantRole(delegado, otro.id, "auditor", CTX), ForbiddenException);
+});
+
+test("dos primeros logins simultáneos con el mismo correo y sujetos distintos: gana uno", async () => {
+  const org = await empresa();
+  const email = `carrera.${sufijo()}@identidad.test`;
+  const u = await prisma.user.create({ data: { email, status: "INVITADO" } });
+  await prisma.organizationUser.create({ data: { organizationId: org.id, userId: u.id, roleId: (await rol("contacto")).id } });
+
+  /* Dos flujos preparados; cada canje devuelve un sujeto distinto. Ojo: esta
+     prueba no garantiza que las dos transacciones se solapen de verdad; si
+     corren en serie, el segundo login cae en la comprobación de sujeto. El
+     caso solapado lo cubre el UPDATE condicional (authSubject IS NULL). */
+  const f1 = await login.begin("PORTAL", "/", URLS);
+  const f2 = await login.begin("PORTAL", "/", URLS);
+  const sujetos = [`sub-a-${randomUUID()}`, `sub-b-${randomUUID()}`];
+  const original = idp.exchangeCode.bind(idp);
+  let i = 0;
+  idp.exchangeCode = async () => ({ subject: sujetos[i++] ?? "x", email, emailVerified: true, name: null, mfa: false });
+  try {
+    const resultados = await Promise.allSettled([
+      login.complete({ channel: "PORTAL", code: "c", state: f1.state, stateCookie: f1.state }, URLS),
+      login.complete({ channel: "PORTAL", code: "c", state: f2.state, stateCookie: f2.state }, URLS),
+    ]);
+    assert.equal(resultados.filter((r) => r.status === "fulfilled").length, 1);
+    const fallo = resultados.find((r) => r.status === "rejected");
+    assert.ok(fallo && fallo.status === "rejected" && fallo.reason instanceof LoginRejectedError && fallo.reason.code === "identidad-en-conflicto");
+  } finally {
+    idp.exchangeCode = original;
+  }
+});
+
+test("al volver a entrar se puede revocar la sesión anterior por su token", async () => {
+  const org = await empresa();
+  const u = await usuario({ org: org.id });
+  const viejo = await entrar("PORTAL", identidad(u));
+  await sessions.revokeToken(viejo, "reemplazada-por-nuevo-login");
+  assert.equal(await sessions.authenticate(viejo, "PORTAL"), null);
+  await sessions.revokeToken("basura", "x");
+  await sessions.revokeToken(undefined, "x");
 });
 
 test("siempre quedan al menos dos Super Admin y ninguno se autodegrada (RA-ACC-008)", async () => {
@@ -434,11 +546,11 @@ test("siempre quedan al menos dos Super Admin y ninguno se autodegrada (RA-ACC-0
     const b = await usuario({ interno: SUPER_ADMIN_ROLE });
     const c = await usuario({ interno: SUPER_ADMIN_ROLE });
 
-    await assert.rejects(internos.revokeRole({ userId: a.id }, a.id, SUPER_ADMIN_ROLE, CTX), ConflictException);
-    await internos.revokeRole({ userId: a.id }, c.id, SUPER_ADMIN_ROLE, CTX);
+    await assert.rejects(internos.revokeRole({ userId: a.id, permissions: SA_PERMS }, a.id, SUPER_ADMIN_ROLE, CTX), ConflictException);
+    await internos.revokeRole({ userId: a.id, permissions: SA_PERMS }, c.id, SUPER_ADMIN_ROLE, CTX);
     /* Quedan a y b: ni quitar el rol ni bloquear a uno de ellos es posible. */
-    await assert.rejects(internos.revokeRole({ userId: a.id }, b.id, SUPER_ADMIN_ROLE, CTX), ConflictException);
-    await assert.rejects(internos.block({ userId: a.id }, b.id, "Dejaría uno solo", CTX), ConflictException);
+    await assert.rejects(internos.revokeRole({ userId: a.id, permissions: SA_PERMS }, b.id, SUPER_ADMIN_ROLE, CTX), ConflictException);
+    await assert.rejects(internos.block({ userId: a.id, permissions: SA_PERMS }, b.id, "Dejaría uno solo", CTX), ConflictException);
   } finally {
     for (const p of previos) {
       await prisma.user.update({ where: { id: p.id }, data: { status: p.status } });

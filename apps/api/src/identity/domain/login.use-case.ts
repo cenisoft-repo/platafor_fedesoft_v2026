@@ -129,7 +129,9 @@ export class LoginUseCase {
             channel: input.channel,
             code: rechazo.code,
             detail: rechazo.detail.slice(0, 300),
-            ...(rechazo.identity ? { email: rechazo.identity.email } : {}),
+            /* Hash y no el correo: muchos rechazados ni siquiera son usuarios,
+               y la auditoría es para siempre (Ley 1581, minimización). */
+            ...(rechazo.identity ? { emailHash: sha256Hex(rechazo.identity.email.trim().toLowerCase()) } : {}),
           },
           ipAddress: input.ip ?? null,
           correlationId: input.correlationId ?? null,
@@ -167,6 +169,7 @@ export class LoginUseCase {
         redirectUri: urls.callbackUrl,
         codeVerifier: flujo.codeVerifier,
         nonce: flujo.nonce,
+        requireMfa: channel === "CONSOLA",
       });
     } catch (e) {
       const detalle = e instanceof IdentityProviderError ? e.message : `Error inesperado: ${(e as Error).message}`;
@@ -202,39 +205,20 @@ export class LoginUseCase {
             quien,
           );
         }
-        usuario = await tx.user.update({
-          where: { id: porCorreo.id },
+        /* Condicional: dos callbacks simultáneos con sujetos distintos y el
+           mismo correo no pueden pisarse; el segundo ve count = 0. */
+        const vinculado = await tx.user.updateMany({
+          where: { id: porCorreo.id, authSubject: null },
           data: { authSubject: identidad.subject },
         });
+        if (vinculado.count === 0) {
+          throw new LoginRejectedError("identidad-en-conflicto", "Vinculación concurrente con otro sujeto.", quien);
+        }
+        usuario = { ...porCorreo, authSubject: identidad.subject };
       }
 
       if (usuario.status === "BLOQUEADO") {
         throw new LoginRejectedError("cuenta-bloqueada", "Usuario bloqueado.", quien);
-      }
-
-      /* Invitaciones pendientes y vigentes: entrar con el correo invitado es
-         aceptarlas. Las vencidas se quedan como están, a la espera de reenvío. */
-      const invitaciones = await tx.organizationUser.findMany({
-        where: { userId: usuario.id, status: "INVITADO", inviteExpiresAt: { gt: ahora } },
-        select: { id: true, organizationId: true },
-      });
-      for (const inv of invitaciones) {
-        const aceptada = await tx.organizationUser.updateMany({
-          where: { id: inv.id, status: "INVITADO" },
-          data: { status: "ACTIVO", inviteExpiresAt: null },
-        });
-        if (aceptada.count === 1) {
-          await this.audit.record(tx, {
-            actor: `usuario:${usuario.id}`,
-            actorUserId: usuario.id,
-            organizationId: inv.organizationId,
-            action: "identity.invitation.accepted",
-            objectType: "OrganizationUser",
-            objectId: inv.id,
-            ipAddress: input.ip ?? null,
-            correlationId: input.correlationId ?? null,
-          });
-        }
       }
 
       let organizationId: string | null = null;
@@ -244,7 +228,13 @@ export class LoginUseCase {
           select: { organizationId: true },
         });
         if (vinculos.length === 0) {
-          throw new LoginRejectedError("sin-empresa", "Sin vínculo activo con ninguna empresa.", quien);
+          /* Sin empresa activa solo se entra a responder invitaciones vigentes. */
+          const pendientes = await tx.organizationUser.count({
+            where: { userId: usuario.id, status: "INVITADO", inviteExpiresAt: { gt: ahora } },
+          });
+          if (pendientes === 0) {
+            throw new LoginRejectedError("sin-empresa", "Sin vínculo activo ni invitación vigente.", quien);
+          }
         }
         /* Con una sola empresa se entra directo; con varias, el usuario
            elige (RF-IDE-003) y hasta entonces no tiene permisos de negocio. */

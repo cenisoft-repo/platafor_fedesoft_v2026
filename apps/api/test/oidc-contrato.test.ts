@@ -20,19 +20,29 @@ before(async () => {
     clientSecret: mock.clientSecret,
     mfaValues: ["mfa", "otp"],
     mfaAcrRequest: "mfa",
+    mfaMaxAgeSec: 900,
   });
 });
 after(() => mock.close());
 
 let n = 0;
-async function canjear(claims: Record<string, unknown>, opciones: { idToken?: string; nonce?: string } = {}) {
+async function canjear(
+  claims: Record<string, unknown>,
+  opciones: { idToken?: string; nonce?: string; requireMfa?: boolean } = {},
+) {
   const code = `codigo-${++n}`;
   mock.grant(code, {
     codeVerifier: "verificador",
     claims: baseClaims(mock, { nonce: "nonce-1", ...claims }),
     ...(opciones.idToken ? { idToken: opciones.idToken } : {}),
   });
-  return idp.exchangeCode({ code, redirectUri: REDIRECT, codeVerifier: "verificador", nonce: opciones.nonce ?? "nonce-1" });
+  return idp.exchangeCode({
+    code,
+    redirectUri: REDIRECT,
+    codeVerifier: "verificador",
+    nonce: opciones.nonce ?? "nonce-1",
+    requireMfa: opciones.requireMfa ?? false,
+  });
 }
 
 test("la URL de autorización lleva PKCE S256, state, nonce y scope", async () => {
@@ -48,11 +58,13 @@ test("la URL de autorización lleva PKCE S256, state, nonce y scope", async () =
   assert.equal(url.searchParams.get("redirect_uri"), REDIRECT);
   assert.match(url.searchParams.get("scope") ?? "", /openid/);
   assert.equal(url.searchParams.get("acr_values"), null);
+  assert.equal(url.searchParams.get("max_age"), null);
 
   const consola = new URL(
     await idp.authorizationUrl({ redirectUri: REDIRECT, state: "s", nonce: "n", codeChallenge: "r", requireMfa: true }),
   );
   assert.equal(consola.searchParams.get("acr_values"), "mfa");
+  assert.equal(consola.searchParams.get("max_age"), "900");
 });
 
 test("un ID token válido produce la identidad verificada", async () => {
@@ -76,6 +88,11 @@ test("amr o acr con un valor configurado cuentan como segundo factor", async () 
   assert.equal((await canjear({ amr: ["pwd"], acr: "1" })).mfa, false);
 });
 
+test("para la consola, una autenticación reciente se acepta", async () => {
+  const id = await canjear({ amr: ["pwd", "otp"], auth_time: Math.floor(Date.now() / 1000) - 60 }, { requireMfa: true });
+  assert.equal(id.mfa, true);
+});
+
 test("email_verified ausente o en texto no cuenta como verificado", async () => {
   assert.equal((await canjear({ email_verified: undefined })).emailVerified, false);
   assert.equal((await canjear({ email_verified: "true" })).emailVerified, false);
@@ -89,6 +106,11 @@ const ATAQUES: [string, () => Promise<unknown>][] = [
   ["de otro emisor", () => canjear({ iss: "https://otro-emisor.example" })],
   ["para otro cliente (aud)", () => canjear({ aud: "otro-cliente" })],
   ["con varias audiencias y azp ajeno", () => canjear({ aud: [mock.clientId, "otro"], azp: "otro" })],
+  ["con varias audiencias y sin azp", () => canjear({ aud: [mock.clientId, "otro"] })],
+  ["con azp de otro cliente aunque la audiencia sea única", () => canjear({ azp: "otro" })],
+  ["para la consola sin auth_time", () => canjear({ amr: ["otp"] }, { requireMfa: true })],
+  ["para la consola con una autenticación vieja", () =>
+    canjear({ amr: ["otp"], auth_time: Math.floor(Date.now() / 1000) - 3600 }, { requireMfa: true })],
   ["vencido", () => canjear({ exp: Math.floor(Date.now() / 1000) - 120 })],
   ["con nonce de otro login", () => canjear({}, { nonce: "nonce-distinto" })],
   ["sin correo", () => canjear({ email: undefined })],
@@ -103,14 +125,14 @@ for (const [nombre, ataque] of ATAQUES) {
 
 test("un código ya usado, o con otro verificador PKCE, no produce sesión", async () => {
   mock.grant("unico", { codeVerifier: "v", claims: baseClaims(mock, { nonce: "n" }) });
-  await idp.exchangeCode({ code: "unico", redirectUri: REDIRECT, codeVerifier: "v", nonce: "n" });
+  await idp.exchangeCode({ code: "unico", redirectUri: REDIRECT, codeVerifier: "v", nonce: "n", requireMfa: false });
   await assert.rejects(
-    idp.exchangeCode({ code: "unico", redirectUri: REDIRECT, codeVerifier: "v", nonce: "n" }),
+    idp.exchangeCode({ code: "unico", redirectUri: REDIRECT, codeVerifier: "v", nonce: "n", requireMfa: false }),
     IdentityProviderError,
   );
   mock.grant("pkce", { codeVerifier: "correcto", claims: baseClaims(mock, { nonce: "n" }) });
   await assert.rejects(
-    idp.exchangeCode({ code: "pkce", redirectUri: REDIRECT, codeVerifier: "robado", nonce: "n" }),
+    idp.exchangeCode({ code: "pkce", redirectUri: REDIRECT, codeVerifier: "robado", nonce: "n", requireMfa: false }),
     IdentityProviderError,
   );
 });
@@ -121,6 +143,7 @@ test("un emisor que publica metadatos de otro emisor se rechaza", async () => {
     clientId: mock.clientId,
     clientSecret: mock.clientSecret,
     mfaValues: [],
+    mfaMaxAgeSec: 900,
   });
   await assert.rejects(
     impostor.authorizationUrl({ redirectUri: REDIRECT, state: "s", nonce: "n", codeChallenge: "c", requireMfa: false }),

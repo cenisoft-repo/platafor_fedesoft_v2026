@@ -19,6 +19,7 @@ import { RequirePermission } from "../common/permissions.js";
 import { InternalUsersUseCase } from "./domain/internal-users.use-case.js";
 import type { AuthenticatedRequest } from "./http/session.middleware.js";
 import { actorDe } from "./auth.controller.js";
+import type { ConsoleActor } from "./domain/internal-users.use-case.js";
 
 const CLAVE_ROL = /^[a-z][a-z0-9-]{1,59}$/;
 
@@ -88,7 +89,7 @@ export class AdminUsersController {
   @RequirePermission("role:assign")
   @ApiOperation({ summary: "Da de alta un usuario interno con su primer rol." })
   provision(@Body() dto: ProvisionInternalUserDto, @Req() req: AuthenticatedRequest) {
-    return this.users.provision(actorDe(req), dto, ctx(req));
+    return this.users.provision(consola(req), dto, ctx(req));
   }
 
   @Post(":userId/internal-roles")
@@ -99,7 +100,7 @@ export class AdminUsersController {
     @Body() dto: GrantRoleDto,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.users.grantRole(actorDe(req), userId, dto.roleKey, ctx(req));
+    return this.users.grantRole(consola(req), userId, dto.roleKey, ctx(req));
   }
 
   @Delete(":userId/internal-roles/:roleKey")
@@ -110,7 +111,7 @@ export class AdminUsersController {
     @Param("roleKey") roleKey: string,
     @Req() req: AuthenticatedRequest,
   ) {
-    return this.users.revokeRole(actorDe(req), userId, roleKey, ctx(req));
+    return this.users.revokeRole(consola(req), userId, roleKey, ctx(req));
   }
 
   @Post(":userId/block")
@@ -118,7 +119,7 @@ export class AdminUsersController {
   @HttpCode(200)
   @ApiOperation({ summary: "Bloquea la cuenta en todo el sistema y cierra sus sesiones." })
   block(@Param("userId", new ParseUUIDPipe()) userId: string, @Body() dto: ReasonDto, @Req() req: AuthenticatedRequest) {
-    return this.users.block(actorDe(req), userId, dto.reason, ctx(req));
+    return this.users.block(consola(req), userId, dto.reason, ctx(req));
   }
 
   @Post(":userId/unblock")
@@ -126,7 +127,7 @@ export class AdminUsersController {
   @HttpCode(200)
   @ApiOperation({ summary: "Desbloquea la cuenta." })
   unblock(@Param("userId", new ParseUUIDPipe()) userId: string, @Body() dto: ReasonDto, @Req() req: AuthenticatedRequest) {
-    return this.users.unblock(actorDe(req), userId, dto.reason, ctx(req));
+    return this.users.unblock(consola(req), userId, dto.reason, ctx(req));
   }
 
   @Post(":userId/sessions/revoke")
@@ -134,8 +135,13 @@ export class AdminUsersController {
   @HttpCode(200)
   @ApiOperation({ summary: "Cierra todas las sesiones del usuario (cierre forzado)." })
   revokeSessions(@Param("userId", new ParseUUIDPipe()) userId: string, @Req() req: AuthenticatedRequest) {
-    return this.users.revokeSessions(actorDe(req), userId, ctx(req));
+    return this.users.revokeSessions(consola(req), userId, ctx(req));
   }
+}
+
+function consola(req: AuthenticatedRequest): ConsoleActor {
+  const actor = actorDe(req);
+  return { userId: actor.userId, permissions: actor.permissions };
 }
 
 function ctx(req: AuthenticatedRequest) {

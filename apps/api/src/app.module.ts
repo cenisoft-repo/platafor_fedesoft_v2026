@@ -1,5 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from "@nestjs/common";
 import { APP_GUARD } from "@nestjs/core";
+import { ThrottlerModule } from "@nestjs/throttler";
+import { ActorThrottlerGuard } from "./common/actor-throttler.guard.js";
 import { CorrelationMiddleware } from "./common/correlation.middleware.js";
 import { DenyByDefaultGuard } from "./common/deny-by-default.guard.js";
 import { HealthController } from "./health/health.controller.js";
@@ -9,12 +11,19 @@ import { IdentityModule } from "./identity/identity.module.js";
 import { SessionMiddleware } from "./identity/http/session.middleware.js";
 
 @Module({
-  imports: [BillingModule, IdentityModule],
+  imports: [
+    /* Techo general por usuario o IP; los endpoints sensibles declaran uno
+       más estricto con @Throttle. */
+    ThrottlerModule.forRoot([{ name: "default", ttl: 60_000, limit: 120 }]),
+    BillingModule,
+    IdentityModule,
+  ],
   controllers: [HealthController],
   providers: [
     PrismaService,
     /* Global a propósito: el guard se aplica a todo lo que exista ahora y a
        todo lo que se añada después, sin que nadie tenga que acordarse. */
+    { provide: APP_GUARD, useClass: ActorThrottlerGuard },
     { provide: APP_GUARD, useClass: DenyByDefaultGuard },
   ],
 })

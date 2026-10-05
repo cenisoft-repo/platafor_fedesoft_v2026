@@ -1,9 +1,10 @@
 -- EPIC-02 · Identidad: sesiones de servidor, roles internos y gestión de
 -- usuarios por empresa. Ver ADR-008.
 --
--- Expand puro: columnas nuevas con valor por defecto y tablas nuevas. La
--- única restricción reemplazada (organization_users.role_id) se sustituye
--- por una más estricta sobre el mismo dato.
+-- Expand: columnas nuevas con valor por defecto y tablas nuevas. La única
+-- restricción reemplazada (organization_users.role_id) se sustituye por una
+-- más estricta sobre el mismo dato; si alguna empresa tuviera hoy un rol
+-- interno asignado, el despliegue falla aquí en lugar de dejarlo pasar.
 
 -- CreateEnum
 CREATE TYPE "OrganizationUserStatus" AS ENUM ('INVITADO', 'ACTIVO', 'DESACTIVADO');
@@ -133,5 +134,8 @@ ALTER TABLE sessions
   CHECK (expires_at > created_at AND idle_timeout_sec > 0);
 
 -- El correo es identidad: dos mayúsculas distintas no pueden ser dos cuentas.
+-- NOT VALID: rige para toda fila nueva o modificada sin fallar el despliegue
+-- por filas antiguas. Validarla (VALIDATE CONSTRAINT) es el paso "contract",
+-- después de normalizar los correos existentes.
 ALTER TABLE users
-  ADD CONSTRAINT users_email_lowercase CHECK (email = lower(email));
+  ADD CONSTRAINT users_email_lowercase CHECK (email = lower(email)) NOT VALID;

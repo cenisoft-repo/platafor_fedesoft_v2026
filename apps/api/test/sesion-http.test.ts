@@ -5,7 +5,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { SessionMiddleware } from "../src/identity/http/session.middleware.js";
 import { SESSION_COOKIE, parseCookies } from "../src/identity/http/cookies.js";
 import { csrfTokenFor, pkceChallenge, randomToken, safeEqual, safeReturnTo, TOKEN_FORMAT } from "../src/identity/domain/tokens.js";
@@ -132,6 +132,15 @@ test("la consola lee solo su cookie: la del portal no autentica /admin", async (
   assert.deepEqual(r.canales, []);
   const c = await ejecutar({ method: "GET", url: "/admin/v1/users", cookie: `${SESSION_COOKIE.CONSOLA}=${TOKEN}` });
   assert.deepEqual(c.canales, ["CONSOLA"]);
+});
+
+test("la cookie del portal no autentica /ADMIN ni la forma absoluta (hallazgo A5 C1)", async () => {
+  const mayus = await ejecutar({ method: "GET", url: "/ADMIN/v1/users", cookie: `${SESSION_COOKIE.PORTAL}=${TOKEN}` });
+  assert.equal(mayus.req.actor, undefined);
+  assert.deepEqual(mayus.canales, []);
+  const absoluta = await ejecutar({ method: "GET", url: "http://api.test/admin/v1/users", cookie: `${SESSION_COOKIE.PORTAL}=${TOKEN}` });
+  assert.ok(absoluta.error instanceof BadRequestException);
+  assert.equal(absoluta.req.actor, undefined);
 });
 
 test("una sesión vencida o revocada borra la cookie y sigue anónima", async () => {

@@ -13,6 +13,8 @@ async function bootstrap(): Promise<void> {
   const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
 
   app.use(helmet());
+  /* La IP real del cliente alimenta el límite de peticiones y la auditoría. */
+  app.getHttpAdapter().getInstance().set("trust proxy", env.TRUST_PROXY_HOPS);
 
   /* Las rutas del afiliado viven en /v1 y las internas en /admin/v1. La
      separación es de URI, no solo de permiso: facilita firewall y auditoría. */

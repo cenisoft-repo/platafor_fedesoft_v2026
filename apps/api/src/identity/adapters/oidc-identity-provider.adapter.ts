@@ -15,6 +15,11 @@ export interface OidcConfig {
   mfaValues: readonly string[];
   /** `acr_values` a pedir cuando se exige segundo factor. */
   mfaAcrRequest?: string | undefined;
+  /**
+   * Antigüedad máxima de la autenticación para la consola. Sin esto, un
+   * `amr: otp` de hace horas se reutilizaría por la sesión SSO del proveedor.
+   */
+  mfaMaxAgeSec: number;
 }
 
 interface Discovery {
@@ -55,8 +60,9 @@ export class OidcIdentityProvider implements IdentityProviderPort {
     url.searchParams.set("nonce", req.nonce);
     url.searchParams.set("code_challenge", req.codeChallenge);
     url.searchParams.set("code_challenge_method", "S256");
-    if (req.requireMfa && this.config.mfaAcrRequest) {
-      url.searchParams.set("acr_values", this.config.mfaAcrRequest);
+    if (req.requireMfa) {
+      url.searchParams.set("max_age", String(this.config.mfaMaxAgeSec));
+      if (this.config.mfaAcrRequest) url.searchParams.set("acr_values", this.config.mfaAcrRequest);
     }
     return url.toString();
   }
@@ -117,10 +123,19 @@ export class OidcIdentityProvider implements IdentityProviderPort {
     if (payload.nonce !== ex.nonce) {
       throw new IdentityProviderError("El nonce del ID token no corresponde a este login.");
     }
-    /* Con varias audiencias, OIDC Core §3.1.3.7 exige que el token se haya
-       emitido para este cliente: si no, es un token ajeno reutilizado. */
-    if (Array.isArray(payload.aud) && payload.aud.length > 1 && payload.azp !== this.config.clientId) {
+    /* OIDC Core §3.1.3.7: con varias audiencias, `azp` es obligatorio; y si
+       viene, debe ser este cliente. Si no, es un token ajeno reutilizado. */
+    const variasAudiencias = Array.isArray(payload.aud) && payload.aud.length > 1;
+    if ((variasAudiencias || payload.azp !== undefined) && payload.azp !== this.config.clientId) {
       throw new IdentityProviderError("El ID token no fue emitido para este cliente (azp).");
+    }
+    /* OIDC Core §3.1.2.1: si se pidió max_age, auth_time es obligatorio. */
+    if (ex.requireMfa) {
+      const authTime = payload.auth_time;
+      const edad = typeof authTime === "number" ? Date.now() / 1000 - authTime : Number.POSITIVE_INFINITY;
+      if (edad > this.config.mfaMaxAgeSec + 30) {
+        throw new IdentityProviderError("La autenticación no es reciente (auth_time fuera de max_age).");
+      }
     }
 
     const sub = payload.sub;

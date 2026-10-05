@@ -6,6 +6,7 @@ import { SessionService } from "../domain/session.service.js";
 import { IDENTITY_PROVIDER, type IdentityProviderPort } from "../ports/identity-provider.port.js";
 import {
   FLOW_COOKIE,
+  SESSION_COOKIE,
   clearFlowCookie,
   clearSessionCookie,
   parseCookies,
@@ -57,7 +58,8 @@ export class AuthHttpService {
     res: Response,
   ): Promise<void> {
     const urls = this.urlsDe(channel);
-    const stateCookie = parseCookies(req.headers.cookie)[FLOW_COOKIE[channel]];
+    const cookies = parseCookies(req.headers.cookie);
+    const stateCookie = cookies[FLOW_COOKIE[channel]];
     clearFlowCookie(res, channel);
 
     if (typeof query.error === "string") {
@@ -79,6 +81,9 @@ export class AuthHttpService {
         },
         urls,
       );
+      /* En un equipo compartido, la sesión de quien entró antes no debe
+         seguir viva detrás de la nueva (hallazgo A5 B3). */
+      await this.sessions.revokeToken(cookies[SESSION_COOKIE[channel]], "reemplazada-por-nuevo-login");
       setSessionCookie(res, channel, hecho.sessionToken, hecho.maxAgeMs);
       res.redirect(302, hecho.redirectTo);
     } catch (e) {

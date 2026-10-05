@@ -21,10 +21,29 @@ export const Public = () => SetMetadata(PUBLIC_KEY, true);
 export const AUTHENTICATED_KEY = "fedesoft:authenticated";
 export const Authenticated = () => SetMetadata(AUTHENTICATED_KEY, true);
 
-/** Las rutas de la consola interna viven bajo este prefijo (ADR-005). */
+/**
+ * ¿La URL apunta a la consola? Solo para elegir QUÉ cookie leer antes de que
+ * exista ruta resuelta. Sin distinguir mayúsculas, porque Express tampoco las
+ * distingue al enrutar. NO es el control de acceso: ese lo decide el guard con
+ * `isConsoleController`, sobre la ruta que de verdad se va a ejecutar.
+ */
 export function isConsoleRoute(url: string | undefined): boolean {
-  const ruta = (url ?? "").split("?")[0] ?? "";
+  const ruta = ((url ?? "").split("?")[0] ?? "").toLowerCase();
   return ruta === "/admin" || ruta.startsWith("/admin/");
+}
+
+/**
+ * ¿El controlador pertenece a la consola (ADR-005)? Se lee del path declarado
+ * en `@Controller`, que es lo que Express acaba ejecutando. Comparar el texto
+ * de la URL de la petición no sirve: `/ADMIN/...` o una URL absoluta en la
+ * línea de petición llegan al mismo controlador con otro texto.
+ */
+export function isConsoleController(path: unknown): boolean {
+  const rutas = Array.isArray(path) ? path : [path];
+  return rutas.some((r) => {
+    const limpia = String(r ?? "").replace(/^\/+/, "").toLowerCase();
+    return limpia === "admin" || limpia.startsWith("admin/");
+  });
 }
 
 /**
@@ -70,4 +89,23 @@ export function grants(held: readonly string[], required: string): boolean {
 
   const [dominio, accion] = required.split(":");
   return held.includes(`${dominio}:*`) || held.includes(`*:${accion}`);
+}
+
+/**
+ * ¿Quien tiene `held` puede otorgar el permiso o patrón `pattern`? Sirve de
+ * techo al asignar roles: nadie reparte más de lo que tiene (hallazgo A5 M2).
+ *
+ * A diferencia de `grants`, acepta patrones (`*`, `billing:*`, `*:read`): un
+ * comodín solo lo otorga quien tiene ese comodín o uno más amplio, y un
+ * permiso sensible solo quien lo tiene literalmente.
+ */
+export function canDelegate(held: readonly string[], pattern: string): boolean {
+  if (held.includes(pattern)) return true;
+  if (SENSITIVE_PERMISSIONS.has(pattern)) return false;
+  if (held.includes("*")) return true;
+  if (pattern === "*") return false;
+  const [dominio, accion] = pattern.split(":");
+  if (dominio === "*") return held.includes(`*:${accion}`);
+  if (accion === "*") return held.includes(`${dominio}:*`);
+  return grants(held, pattern);
 }

@@ -1,5 +1,6 @@
 import { Body, Controller, Get, HttpCode, Param, ParseUUIDPipe, Patch, Post, Req } from "@nestjs/common";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
+import { Throttle } from "@nestjs/throttler";
 import { IsEmail, IsString, Matches, MaxLength, MinLength } from "class-validator";
 import { RequirePermission } from "../common/permissions.js";
 import { OrganizationUsersUseCase, type OrgActor } from "./domain/organization-users.use-case.js";
@@ -52,6 +53,9 @@ export class OrganizationUsersController {
 
   @Post("invitations")
   @RequirePermission("user:invite")
+  /* Cada invitación dispara un correo con el nombre de nuestro dominio: sin
+     techo propio, el endpoint sirve para enviar spam (hallazgo A5 A1). */
+  @Throttle({ default: { limit: 30, ttl: 3_600_000 } })
   @ApiOperation({ summary: "Invita (o reinvita) a una persona por correo, con un rol de empresa." })
   invite(@Body() dto: InviteUserDto, @Req() req: AuthenticatedRequest) {
     return this.users.invite(orgActor(req), dto, ctx(req));
@@ -90,7 +94,7 @@ function orgActor(req: AuthenticatedRequest): OrgActor {
   /* Sin empresa activa no hay permisos de negocio, así que el guard ya habría
      negado; esto cubre el caso si alguna vez cambia esa regla. */
   if (!actor.organizationId) throw new Error("Endpoint de empresa sin empresa activa.");
-  return { userId: actor.userId, organizationId: actor.organizationId };
+  return { userId: actor.userId, organizationId: actor.organizationId, permissions: actor.permissions };
 }
 
 function ctx(req: AuthenticatedRequest) {
