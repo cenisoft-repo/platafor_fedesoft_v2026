@@ -40,7 +40,8 @@ const MODULOS = [
   { id: "cartera", lectura: "billing:read", escritura: "billing:reconcile" },
   { id: "formacion", lectura: "training:read", escritura: "training:update" },
   { id: "contenidos", lectura: "content:read", escritura: "content:update" },
-  { id: "relacionamiento", lectura: "opportunity:read", escritura: "opportunity:update" },
+  /* Verticales y convocatorias: se entra por las verticales; publicar convocatorias es escribir. */
+  { id: "relacionamiento", lectura: "vertical:read", escritura: "opportunity:update" },
   { id: "cuentas", lectura: "interaction:read", escritura: "interaction:create" },
   { id: "resultados", lectura: "analytics:read", escritura: "analytics:export" },
   { id: "usuarios", lectura: "user:read", escritura: "role:assign" },
@@ -134,6 +135,15 @@ test("ningún rol interno recibe un permiso sensible, salvo role:assign del Supe
       assert.equal(grants(r.permissions, sensible), esperado, `${r.key} · ${sensible}`);
       assert.equal(r.permissions.includes(sensible), esperado, `${r.key} lista ${sensible} de forma literal`);
     }
+  }
+});
+
+test("billing:pay es el pago del afiliado: ningún rol interno de área lo alcanza", async () => {
+  /* El Super Admin lo tiene por "*", y lo frena la separación de superficies (ADR-008 §2).
+     Cartera trabaja con permisos explícitos de billing para que un comodín no se lo dé. */
+  for (const r of await rolesInternos()) {
+    if (r.key === "super-admin") continue;
+    assert.equal(grants(r.permissions, "billing:pay"), false, `${r.key} · billing:pay`);
   }
 });
 

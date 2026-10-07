@@ -38,9 +38,11 @@ const ROLES = [
     key: "cartera",
     name: "Cartera · Financiera",
     internal: true,
+    /* Sin comodín en billing: `billing:pay` es el pago del afiliado y no debe
+       alcanzar a ningún rol interno, ni siquiera por una superficie futura. */
     permissions: [
-      "billing:*", "organization:read", "affiliation:read", "certificate:read", "content:read",
-      "analytics:read", "audit:read",
+      "billing:read", "billing:reconcile", "billing:export", "organization:read", "affiliation:read",
+      "certificate:read", "content:read", "analytics:read", "audit:read",
     ],
   },
   {
@@ -54,8 +56,8 @@ const ROLES = [
     name: "Comunicaciones · Contenido",
     internal: true,
     permissions: [
-      "content:*", "directory:*", "organization:read", "training:read", "community:read", "community:update",
-      "opportunity:read", "analytics:read", "audit:read",
+      "content:*", "directory:*", "organization:read", "certificate:read", "training:read", "community:read",
+      "community:update", "vertical:read", "analytics:read", "audit:read",
     ],
   },
   {
@@ -75,7 +77,8 @@ const ROLES = [
     internal: true,
     permissions: [
       "organization:read", "affiliation:read", "billing:read", "certificate:read", "training:read",
-      "directory:read", "opportunity:read", "interaction:*", "analytics:read", "audit:read",
+      "community:read", "directory:read", "vertical:read", "opportunity:read", "interaction:*", "analytics:read",
+      "audit:read",
     ],
   },
   { key: "direccion", name: "Dirección", internal: true, permissions: ["*:read", "analytics:export"] },

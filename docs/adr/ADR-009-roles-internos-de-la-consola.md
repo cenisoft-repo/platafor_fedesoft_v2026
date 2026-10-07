@@ -44,11 +44,11 @@ Los roles de empresa (`gerente`, `talento`, `contacto`) no cambian.
 |---|---|
 | `super-admin` | `*`, `role:assign` |
 | `operaciones` | `organization:*`, `affiliation:*`, `certificate:read`, `billing:read`, `training:read`, `community:read`, `content:read`, `directory:read`, `directory:verify`, `interaction:read`, `analytics:read`, `audit:read` |
-| `cartera` | `billing:*`, `organization:read`, `affiliation:read`, `certificate:read`, `content:read`, `analytics:read`, `audit:read` |
+| `cartera` | `billing:read`, `billing:reconcile`, `billing:export`, `organization:read`, `affiliation:read`, `certificate:read`, `content:read`, `analytics:read`, `audit:read` |
 | `formacion` | `training:*`, `community:*`, `organization:read`, `content:read`, `analytics:read`, `audit:read` |
-| `comunicaciones` | `content:*`, `directory:*`, `organization:read`, `training:read`, `community:read`, `community:update`, `opportunity:read`, `analytics:read`, `audit:read` |
+| `comunicaciones` | `content:*`, `directory:*`, `organization:read`, `certificate:read`, `training:read`, `community:read`, `community:update`, `vertical:read`, `analytics:read`, `audit:read` |
 | `relacionamiento` | `opportunity:*`, `vertical:*`, `organization:read`, `content:read`, `interaction:read`, `analytics:read`, `audit:read` |
-| `kam` | `organization:read`, `affiliation:read`, `billing:read`, `certificate:read`, `training:read`, `directory:read`, `opportunity:read`, `interaction:*`, `analytics:read`, `audit:read` |
+| `kam` | `organization:read`, `affiliation:read`, `billing:read`, `certificate:read`, `training:read`, `community:read`, `directory:read`, `vertical:read`, `opportunity:read`, `interaction:*`, `analytics:read`, `audit:read` |
 | `direccion` | `*:read`, `analytics:export` |
 | `auditor` | `*:read`, `analytics:export`, `audit:export` |
 
@@ -65,7 +65,7 @@ Cada módulo se abre con un permiso de lectura y se modifica con uno de escritur
 | Cartera | `billing:read` | `billing:reconcile` |
 | Formación | `training:read` | `training:update` |
 | Contenidos | `content:read` | `content:update` |
-| Relacionamiento | `opportunity:read` | `opportunity:update` |
+| Relacionamiento | `vertical:read` | `opportunity:update` |
 | Cuentas | `interaction:read` | `interaction:create` |
 | Resultados | `analytics:read` | `analytics:export` |
 | Usuarios | `user:read` | `role:assign` |
@@ -105,9 +105,8 @@ La semilla crea un usuario sintético por rol (`superadmin1@`, `superadmin2@`, `
 **(d) Lo que las listas no expresan frente a la matriz.** Se implementaron tal como se pidieron; estas diferencias quedan registradas para no descubrirlas en producción:
 
 - Exportación (X) por área, importación de padrón, emisión manual de certificados de OPS (CRS ✚), "plantillas propias" de TAL, parámetros de FIN y lectura de proveedores/colas de FIN y AUD: no hay permiso concedido porque esos dominios aún no tienen endpoints. Cada historia que cree el dominio añade sus permisos al rol y a este ADR.
-- Comunicaciones tiene `opportunity:read` (la matriz le da "—" en Oportunidades) y no tiene `vertical:read` ni `certificate:read` (la matriz le da R en Verticales y en Certificados). `opportunity:read` es hoy la llave de lectura del módulo Relacionamiento en el prototipo.
-- El KAM no tiene `community:read` ni `vertical:read` (la matriz le da R de sus cuentas).
-- Los comodines `dominio:*` conceden también acciones futuras que la matriz no da en ese recurso: p. ej. `export` a OPS en Solicitudes y al KAM en Cuentas, y `billing:pay` a Cartera (ver consecuencias).
+- Comunicaciones lee Verticales y Certificados y no Oportunidades, como dice la matriz. Por eso la llave de lectura del módulo Relacionamiento (en el API y en el prototipo) es `vertical:read`: el módulo une verticales y convocatorias, y se entra por las verticales.
+- Los comodines `dominio:*` conceden también acciones futuras que la matriz no da en ese recurso: p. ej. `export` a OPS en Solicitudes y al KAM en Cuentas. Cartera no usa comodín en `billing:` (ver consecuencias).
 - Dirección tiene "—" en Proveedores y en Colas/webhooks, pero `*:read` le dará lectura de cualquier permiso `provider:read` o `queue:read` que se cree.
 - Facturas electrónicas se asumen bajo el prefijo `billing:`. Si el dominio fiscal adopta otro, hay que repartir su lectura (R para OPS, DIR y AUD; "—" para el KAM).
 
@@ -118,7 +117,7 @@ La semilla crea un usuario sintético por rol (`superadmin1@`, `superadmin2@`, `
 **Negativas y riesgos.**
 
 - `*:read` de Dirección y Auditor es abierto por diseño: **todo permiso de lectura que se cree en el futuro queda legible para ambos** sin tocar sus roles. Un permiso de lectura que exponga datos que Dirección no deba ver se nombra fuera de `:read` o se declara sensible.
-- `billing:*` de Cartera cubre `billing:pay`, el permiso que exige `POST /v1/payments`. Hoy no es alcanzable porque el guard global separa superficies (un actor interno no entra a un controlador del portal, ADR-008 §2), pero la barrera es la superficie, no el permiso: si algún día se expone `billing:pay` bajo `/admin/v1`, Cartera lo tendría. Cualquier endpoint de consola que mueva dinero debe usar un permiso propio y sensible.
+- Cartera recibe permisos explícitos de `billing:` y no `billing:*`: así `billing:pay`, el pago del afiliado en `POST /v1/payments`, no le llega por comodín. Una prueba lo fija para todo rol interno de área. El Super Admin sí lo tiene por `*`; ahí la barrera es la separación de superficies (ADR-008 §2). Por eso cualquier endpoint de consola que mueva dinero debe usar un permiso propio y sensible.
 - Las listas viven en la semilla, que no corre en producción. Hace falta un camino auditado para crear y modificar roles allá (RA-ACC-003 pide que el Super Admin los edite). Se une a la deuda de ADR-008 sobre el alta de los dos primeros Super Admin. A3 + A8, antes del piloto.
 - Cambiar los permisos de un rol por la semilla surte efecto en la siguiente petición (los permisos se leen de la base), pero no cierra sesiones: un cambio en producción debe hacerse por la vía auditada que revoca las sesiones afectadas.
 
