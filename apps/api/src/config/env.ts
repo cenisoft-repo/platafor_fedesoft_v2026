@@ -56,6 +56,21 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     if (env.CORS_ORIGINS.trim() === "") {
       throw new Error("CORS_ORIGINS es obligatorio en producción: no se sirve con origen abierto.");
     }
+    /* Con credenciales, cada origen listado puede leer respuestas con la
+       sesión del usuario: solo orígenes https exactos, sin comodines ni rutas. */
+    for (const origen of env.CORS_ORIGINS.split(",").map((o) => o.trim()).filter(Boolean)) {
+      if (!esOrigenHttps(origen)) {
+        throw new Error(`CORS_ORIGINS: "${origen}" no es un origen https exacto (https://host[:puerto]).`);
+      }
+    }
+    /* La credencial de migraciones es dueña del esquema: puede desactivar los
+       disparadores de la auditoría. Si llega al proceso del API, quien lo
+       comprometa la hereda. Las migraciones corren en un trabajo aparte. */
+    if (source.MIGRATION_DATABASE_URL !== undefined) {
+      throw new Error(
+        "MIGRATION_DATABASE_URL no debe estar en el entorno del API: las migraciones corren como trabajo aparte.",
+      );
+    }
     /* Las cookies de sesión son Secure y el login viaja por estas URL: en
        claro, un intermediario se lleva el código o la sesión. */
     for (const clave of ["API_PUBLIC_URL", "PORTAL_URL", "CONSOLE_URL", "OIDC_ISSUER_URL"] as const) {
@@ -71,4 +86,16 @@ export function loadEnv(source: NodeJS.ProcessEnv = process.env): Env {
     }
   }
   return env;
+}
+
+function esOrigenHttps(valor: string): boolean {
+  /* El parser de URL acepta "*" en el host ("https://*.dominio"): un comodín
+     se reconoce aquí, no allí. */
+  if (valor.includes("*")) return false;
+  try {
+    const url = new URL(valor);
+    return url.protocol === "https:" && url.origin === valor;
+  } catch {
+    return false;
+  }
 }

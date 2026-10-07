@@ -1,6 +1,6 @@
 import "reflect-metadata";
 import { NestFactory } from "@nestjs/core";
-import { Logger, ValidationPipe, VersioningType } from "@nestjs/common";
+import { ConsoleLogger, Logger, ValidationPipe, VersioningType } from "@nestjs/common";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import helmet from "helmet";
 import { AppModule } from "./app.module.js";
@@ -10,7 +10,14 @@ async function bootstrap(): Promise<void> {
   const env = loadEnv();
   /* rawBody: sin el cuerpo original no hay firma verificable. Reserializar
      el JSON cambia los bytes y toda firma HMAC falla. */
-  const app = await NestFactory.create(AppModule, { bufferLogs: true, rawBody: true });
+  const app = await NestFactory.create(AppModule, {
+    bufferLogs: true,
+    rawBody: true,
+    /* En producción, una línea JSON por evento y sin códigos de color: el
+       agregador la indexa tal cual, y un salto de línea dentro de un mensaje
+       no parte el registro en dos. */
+    logger: env.NODE_ENV === "production" ? new ConsoleLogger({ json: true }) : undefined,
+  });
 
   app.use(helmet());
   /* La IP real del cliente alimenta el límite de peticiones y la auditoría. */

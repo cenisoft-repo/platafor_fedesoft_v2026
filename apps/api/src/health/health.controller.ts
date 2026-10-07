@@ -1,4 +1,5 @@
-import { Controller, Get, VERSION_NEUTRAL } from "@nestjs/common";
+import { Controller, Get, HttpStatus, Res, VERSION_NEUTRAL } from "@nestjs/common";
+import type { Response } from "express";
 import { SkipThrottle } from "@nestjs/throttler";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { PrismaService } from "../prisma/prisma.service.js";
@@ -21,13 +22,17 @@ export class HealthController {
   @Get("ready")
   @Public()
   @ApiOperation({ summary: "El proceso responde y la base contesta." })
-  async ready(): Promise<{ status: "ok" | "degraded"; database: boolean }> {
+  async ready(
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<{ status: "ok" | "degraded"; database: boolean }> {
     try {
       await this.prisma.$queryRaw`SELECT 1`;
       return { status: "ok", database: true };
     } catch {
-      /* Se reporta degradado sin filtrar el motivo: el detalle va al log,
-         no a una respuesta pública. */
+      /* 503: el orquestador lee el código, no el cuerpo. Con 200 seguiría
+         mandando tráfico a una réplica sin base. Se reporta degradado sin
+         filtrar el motivo: el detalle va al log, no a una respuesta pública. */
+      res.status(HttpStatus.SERVICE_UNAVAILABLE);
       return { status: "degraded", database: false };
     }
   }
