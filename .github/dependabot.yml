@@ -1,0 +1,19 @@
+version: 2
+updates:
+  # La base de la imagen está fijada por digest: sin esto, los parches de
+  # seguridad de Node y Debian nunca llegarían. Un salto de versión mayor de
+  # Node (22 → 24) es una decisión, no una actualización: se hace a mano.
+  - package-ecosystem: docker
+    directory: /apps/api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
+    ignore:
+      - dependency-name: "node"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 3
