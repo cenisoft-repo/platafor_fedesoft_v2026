@@ -127,6 +127,153 @@
       ]
     },
     {
+      "username": "cartera@fedesoft-dev.test",
+      "email": "cartera@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Cartera",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "Autenticador de desarrollo",
+          "secretData": "{\"value\": \"fedesoft-dev-totp-cartera-solo-local\"}",
+          "credentialData": "{\"subType\": \"totp\", \"digits\": 6, \"counter\": 0, \"period\": 30, \"algorithm\": \"HmacSHA1\"}"
+        }
+      ]
+    },
+    {
+      "username": "formacion@fedesoft-dev.test",
+      "email": "formacion@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Formación",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "Autenticador de desarrollo",
+          "secretData": "{\"value\": \"fedesoft-dev-totp-formacion-solo-local\"}",
+          "credentialData": "{\"subType\": \"totp\", \"digits\": 6, \"counter\": 0, \"period\": 30, \"algorithm\": \"HmacSHA1\"}"
+        }
+      ]
+    },
+    {
+      "username": "comunicaciones@fedesoft-dev.test",
+      "email": "comunicaciones@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Comunicaciones",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "Autenticador de desarrollo",
+          "secretData": "{\"value\": \"fedesoft-dev-totp-comunicaciones-solo-local\"}",
+          "credentialData": "{\"subType\": \"totp\", \"digits\": 6, \"counter\": 0, \"period\": 30, \"algorithm\": \"HmacSHA1\"}"
+        }
+      ]
+    },
+    {
+      "username": "relacionamiento@fedesoft-dev.test",
+      "email": "relacionamiento@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Relacionamiento",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "Autenticador de desarrollo",
+          "secretData": "{\"value\": \"fedesoft-dev-totp-relacionamiento-solo-local\"}",
+          "credentialData": "{\"subType\": \"totp\", \"digits\": 6, \"counter\": 0, \"period\": 30, \"algorithm\": \"HmacSHA1\"}"
+        }
+      ]
+    },
+    {
+      "username": "kam@fedesoft-dev.test",
+      "email": "kam@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Gestor de Cuenta",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "Autenticador de desarrollo",
+          "secretData": "{\"value\": \"fedesoft-dev-totp-kam-solo-local\"}",
+          "credentialData": "{\"subType\": \"totp\", \"digits\": 6, \"counter\": 0, \"period\": 30, \"algorithm\": \"HmacSHA1\"}"
+        }
+      ]
+    },
+    {
+      "username": "direccion@fedesoft-dev.test",
+      "email": "direccion@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Dirección",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "Autenticador de desarrollo",
+          "secretData": "{\"value\": \"fedesoft-dev-totp-direccion-solo-local\"}",
+          "credentialData": "{\"subType\": \"totp\", \"digits\": 6, \"counter\": 0, \"period\": 30, \"algorithm\": \"HmacSHA1\"}"
+        }
+      ]
+    },
+    {
+      "username": "auditor@fedesoft-dev.test",
+      "email": "auditor@fedesoft-dev.test",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Auditor",
+      "lastName": "Dev",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "Fedesoft.dev1",
+          "temporary": false
+        },
+        {
+          "type": "otp",
+          "userLabel": "Autenticador de desarrollo",
+          "secretData": "{\"value\": \"fedesoft-dev-totp-auditor-solo-local\"}",
+          "credentialData": "{\"subType\": \"totp\", \"digits\": 6, \"counter\": 0, \"period\": 30, \"algorithm\": \"HmacSHA1\"}"
+        }
+      ]
+    },
+    {
       "username": "camilo.restrepo@datalabs-andina.test",
       "email": "camilo.restrepo@datalabs-andina.test",
       "emailVerified": true,
