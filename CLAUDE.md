@@ -19,6 +19,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
   - `docs/adr/ADR-006-fundacion-monorepo-y-datos.md` — qué se construyó en EPIC-00 y por qué las invariantes viven en la base de datos.
   - `docs/adr/ADR-007-recorrido-critico-pago-factura-certificado.md` — el recorrido pago → factura → certificado, sus controles y el orden en que se aplican.
   - `docs/adr/ADR-008-identidad-sesiones-y-gestion-de-usuarios.md` — login OIDC, sesiones de servidor, CSRF, invitaciones y gestión de usuarios por empresa y desde la consola.
+  - `docs/adr/ADR-009-roles-internos-de-la-consola.md` — los nueve roles internos de la consola, sus permisos, el oráculo de módulos que fija la prueba y lo que aún no se aplica (ABAC, doble control).
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
