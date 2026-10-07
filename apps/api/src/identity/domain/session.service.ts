@@ -209,6 +209,19 @@ export class SessionService {
           ).map((v) => ({ ...v.organization, role: v.role, expiresAt: v.inviteExpiresAt?.toISOString() ?? null }))
         : [];
 
+    /* Roles internos de quien opera la consola: la interfaz los muestra y
+       explica qué acciones no le corresponden. Decidir sigue siendo del servidor. */
+    const internalRoles =
+      session.channel === "CONSOLA"
+        ? (
+            await this.prisma.userInternalRole.findMany({
+              where: { userId: actor.userId },
+              select: { role: { select: { key: true, name: true } } },
+              orderBy: { role: { name: "asc" } },
+            })
+          ).map((r) => r.role)
+        : [];
+
     return {
       user: usuario,
       channel: session.channel,
@@ -217,6 +230,7 @@ export class SessionService {
       activeOrganization: organizations.find((o) => o.id === actor.organizationId) ?? null,
       organizations,
       pendingInvitations,
+      internalRoles,
       permissions: actor.permissions,
     };
   }

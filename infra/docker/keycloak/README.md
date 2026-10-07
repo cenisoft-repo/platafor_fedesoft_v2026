@@ -17,3 +17,7 @@ Proveedor OIDC local para el login del portal y la consola (ADR-008). **Solo par
 Secreto TOTP de `superadmin1`, para añadirlo a una app autenticadora (base32): `MZSWIZLTN5THILLEMV3C25DPORYC243PNRXS23DPMNQWY`.
 
 Los usuarios de la semilla (`pnpm db:seed`) no traen sujeto OIDC: se vinculan en el primer login por correo verificado. Si recreas Keycloak después de haber entrado, los sujetos cambian y la API rechaza con `identidad-en-conflicto` (es el control funcionando); recrea también la base o limpia `users.auth_subject` en desarrollo.
+
+## Usarlo con el prototipo en modo API
+
+El prototipo visual (`cenisoft-repo/fedesoft`) puede usar este API para la identidad. Sirve portal y consola en el puerto 3001, así que en `apps/api/.env` hay que poner `PORTAL_URL` y `CONSOLE_URL` en `http://localhost:3001` (y ese origen en `CORS_ORIGINS`). Instrucciones completas en el README del prototipo, sección "Modo API".
