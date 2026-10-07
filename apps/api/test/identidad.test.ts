@@ -203,7 +203,7 @@ test("la consola exige rol interno y segundo factor; el portal y la consola no c
   assert.equal(s?.actor.internal, true);
   assert.ok(s);
   const vistaConsola = await sessions.view(s.actor, s.session);
-  assert.deepEqual(vistaConsola.internalRoles.map((r) => r.key), ["operaciones"]);
+  assert.deepEqual(vistaConsola.internalRoles, [{ key: "operaciones", name: "Operaciones · Afiliación" }]);
   assert.deepEqual(vistaConsola.organizations, []);
   assert.equal(s?.actor.organizationId, null);
   assert.ok(s?.actor.permissions.includes("affiliation:*"));

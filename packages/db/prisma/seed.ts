@@ -15,13 +15,72 @@ if (process.env.NODE_ENV === "production") {
 
 const prisma = new PrismaClient();
 
+/* Roles internos: los nueve de docs/01-consola-administracion.md §2.1 con los
+   permisos de ADR-009. Las claves son contrato con el prototipo de la consola
+   (que decide los módulos por estas cadenas) y con la prueba
+   apps/api/test/roles-internos.test.ts: cambiar una lista sin cambiar el
+   oráculo de esa prueba falla el CI. Los comodines los resuelve `grants()`
+   (apps/api/src/common/permissions.ts); ninguno concede un permiso sensible. */
 const ROLES = [
   /* `role:assign` es sensible: ningún comodín lo concede, ni siquiera `*`, así
      que se declara de forma explícita. */
   { key: "super-admin", name: "Super Admin Fedesoft", internal: true, permissions: ["*", "role:assign"] },
-  { key: "operaciones", name: "Operaciones Fedesoft", internal: true, permissions: ["affiliation:*", "billing:read", "billing:reconcile", "organization:*", "training:*"] },
-  { key: "kam", name: "Gestor de cuenta", internal: true, permissions: ["organization:read", "interaction:*", "opportunity:read"] },
-  { key: "auditor", name: "Auditor", internal: true, permissions: ["*:read"] },
+  {
+    key: "operaciones",
+    name: "Operaciones · Afiliación",
+    internal: true,
+    permissions: [
+      "organization:*", "affiliation:*", "certificate:read", "billing:read", "training:read", "community:read",
+      "content:read", "directory:read", "directory:verify", "interaction:read", "analytics:read", "audit:read",
+    ],
+  },
+  {
+    key: "cartera",
+    name: "Cartera · Financiera",
+    internal: true,
+    permissions: [
+      "billing:*", "organization:read", "affiliation:read", "certificate:read", "content:read",
+      "analytics:read", "audit:read",
+    ],
+  },
+  {
+    key: "formacion",
+    name: "Formación y comunidades",
+    internal: true,
+    permissions: ["training:*", "community:*", "organization:read", "content:read", "analytics:read", "audit:read"],
+  },
+  {
+    key: "comunicaciones",
+    name: "Comunicaciones · Contenido",
+    internal: true,
+    permissions: [
+      "content:*", "directory:*", "organization:read", "training:read", "community:read", "community:update",
+      "opportunity:read", "analytics:read", "audit:read",
+    ],
+  },
+  {
+    key: "relacionamiento",
+    name: "Relacionamiento · Verticales",
+    internal: true,
+    permissions: [
+      "opportunity:*", "vertical:*", "organization:read", "content:read", "interaction:read",
+      "analytics:read", "audit:read",
+    ],
+  },
+  /* El alcance "solo organizaciones asignadas" del KAM aún no se aplica en el
+     servidor (ADR-009 b): no hay modelo de asignación de cuentas. */
+  {
+    key: "kam",
+    name: "Gestor de cuenta",
+    internal: true,
+    permissions: [
+      "organization:read", "affiliation:read", "billing:read", "certificate:read", "training:read",
+      "directory:read", "opportunity:read", "interaction:*", "analytics:read", "audit:read",
+    ],
+  },
+  { key: "direccion", name: "Dirección", internal: true, permissions: ["*:read", "analytics:export"] },
+  { key: "auditor", name: "Auditor", internal: true, permissions: ["*:read", "analytics:export", "audit:export"] },
+  /* Roles de empresa: no cambian (ADR-008). */
   { key: "gerente", name: "Gerente afiliado", internal: false, permissions: ["organization:read", "organization:update", "billing:*", "certificate:read", "directory:*", "opportunity:*", "user:read", "user:invite", "user:manage"] },
   { key: "talento", name: "Talento humano afiliado", internal: false, permissions: ["training:*", "community:read", "organization:read"] },
   { key: "contacto", name: "Contacto afiliado", internal: false, permissions: ["organization:read", "training:read"] },
@@ -150,12 +209,19 @@ async function main() {
  * login cuando el proveedor de identidad confirma el mismo correo verificado
  * (ADR-008). Coinciden con los usuarios del realm de desarrollo de Keycloak
  * (`infra/docker/keycloak/`). Dos Super Admin porque la regla RA-ACC-008 exige
- * que nunca haya menos.
+ * que nunca haya menos; uno por cada uno de los demás roles internos (ADR-009).
  */
 const USUARIOS_DEV = [
   { email: "superadmin1@fedesoft-dev.test", name: "Super Admin Uno", internalRole: "super-admin" },
   { email: "superadmin2@fedesoft-dev.test", name: "Super Admin Dos", internalRole: "super-admin" },
   { email: "operaciones@fedesoft-dev.test", name: "Operaciones Dev", internalRole: "operaciones" },
+  { email: "cartera@fedesoft-dev.test", name: "Cartera Dev", internalRole: "cartera" },
+  { email: "formacion@fedesoft-dev.test", name: "Formación Dev", internalRole: "formacion" },
+  { email: "comunicaciones@fedesoft-dev.test", name: "Comunicaciones Dev", internalRole: "comunicaciones" },
+  { email: "relacionamiento@fedesoft-dev.test", name: "Relacionamiento Dev", internalRole: "relacionamiento" },
+  { email: "kam@fedesoft-dev.test", name: "Gestor de Cuenta Dev", internalRole: "kam" },
+  { email: "direccion@fedesoft-dev.test", name: "Dirección Dev", internalRole: "direccion" },
+  { email: "auditor@fedesoft-dev.test", name: "Auditor Dev", internalRole: "auditor" },
   { email: "camilo.restrepo@datalabs-andina.test", name: "Camilo Restrepo", orgRole: "gerente" },
   { email: "diana.salazar@datalabs-andina.test", name: "Diana Salazar", orgRole: "talento" },
 ] as const;
