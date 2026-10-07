@@ -5,12 +5,31 @@
  * Las empresas son ficticias. Las tarifas son las que usa el prototipo y están
  * pendientes de que Fedesoft confirme las reales.
  */
+import { existsSync } from "node:fs";
 import { PrismaClient, Segment } from "@prisma/client";
+import { evaluarEntornoSemilla } from "./seed-guard.js";
 
-/* Usuarios con correos conocidos y roles altos: en producción serían una
-   puerta de entrada. La semilla se niega a correr ahí. */
-if (process.env.NODE_ENV === "production") {
-  throw new Error("La semilla sintética no corre con NODE_ENV=production.");
+/* Usuarios con correos conocidos y roles altos: en un entorno real serían una
+   puerta de entrada. Corre solo en desarrollo o pruebas y contra una base local
+   o de CI (seed-guard.ts); lo demás se niega. */
+for (const archivo of [".env", "prisma/.env"]) {
+  /* Prisma lee el .env por su cuenta; hay que leerlo antes para saber a qué base iría. */
+  if (!process.env.DATABASE_URL && existsSync(archivo)) {
+    try {
+      process.loadEnvFile(archivo);
+    } catch (e) {
+      console.warn(`No pude leer ${archivo}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+}
+const veredicto = evaluarEntornoSemilla({
+  NODE_ENV: process.env.NODE_ENV,
+  DATABASE_URL: process.env.DATABASE_URL,
+  ALLOW_SYNTHETIC_SEED: process.env.ALLOW_SYNTHETIC_SEED,
+});
+if (!veredicto.permitida) {
+  console.error(`La semilla sintética se niega a correr: ${veredicto.motivo}`);
+  process.exit(1);
 }
 
 const prisma = new PrismaClient();

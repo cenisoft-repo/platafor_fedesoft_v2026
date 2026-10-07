@@ -36,6 +36,8 @@ pnpm --filter @fedesoft/api dev    # http://localhost:3000/docs
 
 Comprobación de salud: `/health/live` y `/health/ready`.
 
+**La semilla es solo para desarrollo y CI.** Crea usuarios con contraseña pública y el rol de mayor privilegio, así que se niega a correr salvo que `NODE_ENV` sea `development`, `test` o esté vacío **y** la base sea local (`localhost`, `127.0.0.1`, `::1` o el servicio `postgres` de `infra/docker`). Para una base remota de pruebas con datos ficticios (una demo, un staging) hay que fijar `ALLOW_SYNTHETIC_SEED=1` de forma explícita; con `NODE_ENV=production` nunca corre. Un entorno real necesita su propio arranque del catálogo de roles, sin usuarios sintéticos: está pendiente y es deuda declarada en ADR-009.
+
 ### Iniciar sesión en local
 
 El login es OIDC contra el Keycloak de `infra/docker` (ADR-008). Abre `http://localhost:3000/v1/auth/login` (portal) o `http://localhost:3000/admin/v1/auth/login` (consola, exige TOTP). Usuarios sintéticos y secreto TOTP de prueba: [`infra/docker/keycloak/README.md`](infra/docker/keycloak/README.md). Tras entrar, el API redirige a `PORTAL_URL`/`CONSOLE_URL`; mientras no existan `apps/web` y `apps/admin`, consulta la sesión en `GET /v1/auth/session` desde el mismo navegador.
