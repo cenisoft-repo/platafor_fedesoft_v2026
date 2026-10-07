@@ -2,7 +2,7 @@
 
 - **Estado:** Propuesto · 5 de octubre de 2026. Pasa a Aceptado cuando Fedesoft cierre la decisión pendiente de proveedor de identidad y MFA (`docs/00-plan-de-ejecucion.md`, sección 6); hasta entonces rige la propuesta por defecto.
 - **Decisores:** A0 con revisión de A5 (seguridad) y A2 (datos).
-- **Relacionadas:** ADR-002 (identidad intercambiable), ADR-005 (consola separada), ADR-006 (invariantes en la base), ADR-007 (puertos y adaptadores).
+- **Relacionadas:** ADR-002 (identidad intercambiable), ADR-005 (consola separada), ADR-006 (invariantes en la base), ADR-007 (puertos y adaptadores), ADR-009 (catálogo de roles internos de la consola y sus permisos).
 - **Requisitos:** RF-IDE-001 a 008, RF-AFI-005 (parcial), RA-ACC-002, RA-ACC-003 (parcial), RA-ACC-007, RA-ACC-008, RNF-SEG-001.
 
 ## Contexto
@@ -56,6 +56,8 @@ Retirar una invitación la borra (no la deja DESACTIVADA), y reinvitar a un desa
 ### 7. Roles internos sin empresa
 
 `UserInternalRole` (usuario ↔ rol interno, varios por persona). Una clave compuesta `(role_id, role_internal)` hacia `roles(id, internal)` más un CHECK de valor constante impiden **en la base** asignar un rol interno dentro de una empresa, o uno de empresa como interno. Cambiar el carácter interno de un rol ya asignado también falla.
+
+Qué roles internos existen y con qué permisos: ADR-009.
 
 ### 8. Tercera marca explícita: `@Authenticated`
 

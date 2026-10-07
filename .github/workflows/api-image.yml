@@ -1,0 +1,133 @@
+name: Imagen del API
+
+# Construye y prueba la imagen en cada push que la afecta. Solo la rama por
+# defecto la publica: ninguna otra rama tiene permiso de escribir en el registro.
+# Sin disparador pull_request: las ramas del repo ya corren por push (como CI),
+# y repetirlo solo duplicaría la corrida.
+on:
+  push:
+    branches: ["main", "gestorfelipe/**", "feat/**"]
+    paths:
+      - "apps/api/**"
+      - "packages/**"
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "turbo.json"
+      - ".dockerignore"
+      - ".github/workflows/api-image.yml"
+  workflow_dispatch:
+
+# En ramas de trabajo, un push nuevo cancela el anterior. En la rama por
+# defecto no: cada commit integrado debe quedar publicado.
+concurrency:
+  group: api-image-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+permissions:
+  contents: read
+
+jobs:
+  verificar:
+    name: Construir y probar la imagen
+    # En la rama por defecto la prueba la hace `publicar`, sobre la imagen que publica.
+    if: github.ref != format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Construir
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          load: true
+          tags: fedesoft-api:ci
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+
+      # Migraciones, arranque en producción, sondas, 401 sin sesión, logs
+      # JSON, sin root, recuperación sin base y cierre ordenado.
+      - name: Prueba de humo
+        run: bash apps/api/docker/smoke.sh fedesoft-api:ci
+
+  # Se construye una sola vez y se sube sin etiqueta, por digest. La prueba de
+  # humo corre sobre ese digest y solo si pasa recibe las etiquetas: lo que se
+  # despliega es exactamente lo que se probó.
+  publicar:
+    name: Construir, probar y publicar en GHCR
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGEN: ghcr.io/${{ github.repository_owner }}/fedesoft-api
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGEN }}
+          labels: |
+            org.opencontainers.image.title=fedesoft-api
+            org.opencontainers.image.description=API del Portal Único del Afiliado — Fedesoft
+
+      - id: build
+        name: Construir y subir por digest
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/api/Dockerfile
+          labels: ${{ steps.meta.outputs.labels }}
+          outputs: type=image,name=${{ env.IMAGEN }},push-by-digest=true,name-canonical=true,push=true
+          cache-from: type=gha,scope=api
+          cache-to: type=gha,mode=max,scope=api
+          provenance: mode=max
+          sbom: true
+
+      - name: Prueba de humo sobre el digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          docker pull "$IMAGEN@$DIGEST"
+          bash apps/api/docker/smoke.sh "$IMAGEN@$DIGEST"
+
+      # sha-<commit>: inmutable, lo que se despliega en producción.
+      # edge: la última de la rama por defecto, para staging.
+      - name: Etiquetar
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          SHA: ${{ github.sha }}
+        run: |
+          docker buildx imagetools create \
+            -t "$IMAGEN:sha-$SHA" \
+            -t "$IMAGEN:edge" \
+            "$IMAGEN@$DIGEST"
+
+      - name: Resumen
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          {
+            echo "### Imagen publicada"
+            echo
+            echo "Despliega por digest, no por etiqueta:"
+            echo
+            echo '```'
+            echo "$IMAGEN@$DIGEST"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"

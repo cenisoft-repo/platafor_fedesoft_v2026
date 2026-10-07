@@ -62,6 +62,16 @@ export const SENSITIVE_PERMISSIONS: ReadonlySet<string> = new Set([
   "role:assign",
   "user:impersonate",
   "organization:delete",
+  /* Datos personales de terceros (Ley 1581): ni `*` ni `*:read` los abren.
+     `session:inspect` muestra IP y agente de usuario de las sesiones ajenas;
+     `user:read-affiliates` deja buscar y ver fichas de personas que no son del
+     equipo interno (ADR-009, decisión 5). */
+  "session:inspect",
+  "user:read-affiliates",
+  /* Aprobación de 2.º nivel de una afiliación (docs/01 §2.2, Dirección). Aún no
+     tiene endpoint; queda sensible desde ya para que ningún `affiliation:*` la
+     reparta el día que exista (ADR-009, «Qué se deja fuera», a). */
+  "affiliation:approve",
 ]);
 
 /** Exactamente dos segmentos no vacíos, en minúsculas. */

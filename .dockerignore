@@ -1,0 +1,17 @@
+# Contexto de la imagen del API: solo código y manifiestos.
+# Lo que no entra aquí no puede filtrarse a una capa.
+**/node_modules
+**/dist
+**/.turbo
+**/.next
+**/coverage
+**/*.tsbuildinfo
+**/.env
+**/.env.*
+*.tgz
+.git
+.github
+.claude
+docs
+infra
+**/test

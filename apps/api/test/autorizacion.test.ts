@@ -243,6 +243,38 @@ test("en producción se rechazan los secretos de ejemplo", () => {
   assert.throws(() => loadEnv({ ...prod, OIDC_CLIENT_SECRET: "cambiar-secreto-local-del-cliente" } as NodeJS.ProcessEnv), /OIDC_CLIENT_SECRET/);
 });
 
+test("en producción CORS solo admite orígenes https exactos", () => {
+  const prod = {
+    ...ENV_BASE,
+    NODE_ENV: "production",
+    API_PUBLIC_URL: "https://api.example",
+    PORTAL_URL: "https://portal.example",
+    CONSOLE_URL: "https://consola.example",
+    OIDC_ISSUER_URL: "https://id.example/realms/fedesoft",
+  };
+  for (const malo of ["*", "http://portal.example", "https://*.example", "https://portal.example/", "portal.example"]) {
+    assert.throws(() => loadEnv({ ...prod, CORS_ORIGINS: malo } as NodeJS.ProcessEnv), /CORS_ORIGINS/, malo);
+  }
+  const env = loadEnv({ ...prod, CORS_ORIGINS: "https://portal.example, https://consola.example:8443" } as NodeJS.ProcessEnv);
+  assert.equal(env.NODE_ENV, "production");
+});
+
+test("en producción el API no arranca con la credencial de migraciones a la vista", () => {
+  const prod = {
+    ...ENV_BASE,
+    NODE_ENV: "production",
+    CORS_ORIGINS: "https://portal.example",
+    API_PUBLIC_URL: "https://api.example",
+    PORTAL_URL: "https://portal.example",
+    CONSOLE_URL: "https://consola.example",
+    OIDC_ISSUER_URL: "https://id.example/realms/fedesoft",
+  };
+  assert.throws(
+    () => loadEnv({ ...prod, MIGRATION_DATABASE_URL: "postgresql://owner:x@db/fedesoft" } as NodeJS.ProcessEnv),
+    /MIGRATION_DATABASE_URL/,
+  );
+});
+
 test("canDelegate: nadie reparte más de lo que tiene", () => {
   assert.equal(canDelegate(["*", "role:assign"], "*"), true);
   assert.equal(canDelegate(["*", "role:assign"], "role:assign"), true);

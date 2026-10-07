@@ -19,6 +19,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
   - `docs/adr/ADR-006-fundacion-monorepo-y-datos.md` — qué se construyó en EPIC-00 y por qué las invariantes viven en la base de datos.
   - `docs/adr/ADR-007-recorrido-critico-pago-factura-certificado.md` — el recorrido pago → factura → certificado, sus controles y el orden en que se aplican.
   - `docs/adr/ADR-008-identidad-sesiones-y-gestion-de-usuarios.md` — login OIDC, sesiones de servidor, CSRF, invitaciones y gestión de usuarios por empresa y desde la consola.
+  - `docs/adr/ADR-009-roles-internos-de-la-consola.md` — los nueve roles internos de la consola, sus permisos, el oráculo de módulos que fija la prueba y lo que aún no se aplica (ABAC, doble control).
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
@@ -100,6 +101,7 @@ Cuándo invocar cada uno, en qué orden y con qué modelo: `docs/00-plan-de-ejec
 | Datos | `packages/db` | Esquema Prisma, migraciones forward-only, semilla sintética, pruebas de integridad |
 | Config compartida | `packages/config` | `tsconfig.base.json` y ESLint base |
 | Infraestructura local | `infra/docker` | PostgreSQL, Redis, almacenamiento S3, Keycloak de desarrollo |
+| Imagen y despliegue del API | `apps/api/Dockerfile`, `docs/runbooks/despliegue-api.md` | Una imagen con dos órdenes (API y `migrate`); prueba de humo en `apps/api/docker/smoke.sh` |
 | Prototipo visual | `cenisoft-repo/fedesoft` | Repositorio aparte: otra pieza, otro ciclo de vida |
 
 Las reglas de negocio configurables son filas de `Parameter`/`ParameterVersion`, nunca constantes. La regla de "al día" ya existe ahí como `afiliacion.dias_gracia` marcada provisional; la duración de sesiones y la vigencia de invitaciones, como `identidad.sesion` e `identidad.invitacion`.

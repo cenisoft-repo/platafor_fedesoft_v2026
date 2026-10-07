@@ -5,23 +5,134 @@
  * Las empresas son ficticias. Las tarifas son las que usa el prototipo y están
  * pendientes de que Fedesoft confirme las reales.
  */
+import { existsSync } from "node:fs";
 import { PrismaClient, Segment } from "@prisma/client";
+import { evaluarEntornoSemilla } from "./seed-guard.js";
 
-/* Usuarios con correos conocidos y roles altos: en producción serían una
-   puerta de entrada. La semilla se niega a correr ahí. */
-if (process.env.NODE_ENV === "production") {
-  throw new Error("La semilla sintética no corre con NODE_ENV=production.");
+/* Usuarios con correos conocidos y roles altos: en un entorno real serían una
+   puerta de entrada. Corre solo en desarrollo o pruebas y contra una base local
+   o de CI (seed-guard.ts); lo demás se niega. */
+for (const archivo of [".env", "prisma/.env"]) {
+  /* Prisma lee el .env por su cuenta; hay que leerlo antes para saber a qué base iría. */
+  if (!process.env.DATABASE_URL && existsSync(archivo)) {
+    try {
+      process.loadEnvFile(archivo);
+    } catch (e) {
+      console.warn(`No pude leer ${archivo}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+}
+const veredicto = evaluarEntornoSemilla({
+  NODE_ENV: process.env.NODE_ENV,
+  DATABASE_URL: process.env.DATABASE_URL,
+  ALLOW_SYNTHETIC_SEED: process.env.ALLOW_SYNTHETIC_SEED,
+});
+if (!veredicto.permitida) {
+  console.error(`La semilla sintética se niega a correr: ${veredicto.motivo}`);
+  process.exit(1);
 }
 
 const prisma = new PrismaClient();
 
+/* Roles internos: los nueve de docs/01-consola-administracion.md §2.1 con los
+   permisos de ADR-009. Las claves son contrato con el prototipo de la consola
+   (que decide los módulos por estas cadenas) y con la prueba
+   apps/api/test/roles-internos.test.ts: cambiar una lista sin cambiar el
+   oráculo de esa prueba falla el CI.
+
+   Reglas de composición (ADR-009, decisión 3):
+   - Un comodín de dominio (`dominio:*`) solo se concede si la matriz de docs/01
+     §2.2 da CRUSX completo en ese recurso. Donde falta una letra se listan las
+     acciones: C `create`, R `read`, U `update`, S `change-status`, X `export`.
+   - `*:read` solo para los roles de lectura global (Dirección y Auditor).
+   - Los permisos sensibles (SENSITIVE_PERMISSIONS) los lleva literal solo quien
+     la tabla del ADR indica; ningún comodín los concede, ni siquiera `*`.
+   - `audit:read` solo lo tienen quienes leen toda la auditoría: sin filtro por
+     área en el servidor, dárselo a un rol de área abriría el registro completo. */
 const ROLES = [
-  /* `role:assign` es sensible: ningún comodín lo concede, ni siquiera `*`, así
-     que se declara de forma explícita. */
-  { key: "super-admin", name: "Super Admin Fedesoft", internal: true, permissions: ["*", "role:assign"] },
-  { key: "operaciones", name: "Operaciones Fedesoft", internal: true, permissions: ["affiliation:*", "billing:read", "billing:reconcile", "organization:*", "training:*"] },
-  { key: "kam", name: "Gestor de cuenta", internal: true, permissions: ["organization:read", "interaction:*", "opportunity:read"] },
-  { key: "auditor", name: "Auditor", internal: true, permissions: ["*:read"] },
+  /* `role:assign`, `session:inspect` y `user:read-affiliates` son sensibles:
+     ningún comodín los concede, ni siquiera `*`, así que se declaran de forma explícita. */
+  {
+    key: "super-admin",
+    name: "Super Admin Fedesoft",
+    internal: true,
+    permissions: ["*", "role:assign", "session:inspect", "user:read-affiliates"],
+  },
+  {
+    key: "operaciones",
+    name: "Operaciones · Afiliación",
+    internal: true,
+    /* Solicitudes CRUS (sin X): acciones explícitas y sin `affiliation:approve`,
+       que es la aprobación de 2.º nivel y es sensible. */
+    permissions: [
+      "organization:*",
+      "affiliation:read", "affiliation:create", "affiliation:update", "affiliation:change-status",
+      "certificate:read", "billing:read", "training:read", "community:read", "content:read",
+      "directory:read", "directory:verify", "interaction:read", "analytics:read",
+    ],
+  },
+  {
+    key: "cartera",
+    name: "Cartera · Financiera",
+    internal: true,
+    /* Sin comodín en billing: `billing:pay` es el pago del afiliado y no debe
+       alcanzar a ningún rol interno, ni siquiera por una superficie futura. */
+    permissions: [
+      "billing:read", "billing:reconcile", "billing:export", "organization:read", "affiliation:read",
+      "certificate:read", "content:read", "analytics:read",
+    ],
+  },
+  {
+    key: "formacion",
+    name: "Formación y comunidades",
+    internal: true,
+    permissions: ["training:*", "community:*", "organization:read", "content:read", "analytics:read"],
+  },
+  {
+    key: "comunicaciones",
+    name: "Comunicaciones · Contenido",
+    internal: true,
+    /* Contenido y directorio CRUS (sin X): acciones explícitas. Sin
+       `directory:verify`: verificar perfiles es de Operaciones. */
+    permissions: [
+      "content:read", "content:create", "content:update", "content:change-status",
+      "directory:read", "directory:create", "directory:update", "directory:change-status",
+      "organization:read", "certificate:read", "training:read", "community:read", "community:update",
+      "vertical:read", "analytics:read",
+    ],
+  },
+  {
+    key: "relacionamiento",
+    name: "Relacionamiento · Verticales",
+    internal: true,
+    permissions: [
+      "opportunity:*", "vertical:*", "organization:read", "content:read", "interaction:read", "analytics:read",
+    ],
+  },
+  /* El alcance "solo organizaciones asignadas" del KAM aún no se aplica en el
+     servidor (ADR-009 b): no hay modelo de asignación de cuentas. Por eso la
+     consola rechaza asignar este rol (ROLES_SIN_ALCANCE_APLICADO); la semilla
+     de desarrollo sí lo crea. Cuentas CRU (sin S ni X): acciones explícitas. */
+  {
+    key: "kam",
+    name: "Gestor de cuenta",
+    internal: true,
+    permissions: [
+      "organization:read", "affiliation:read", "billing:read", "certificate:read", "training:read",
+      "community:read", "directory:read", "vertical:read", "opportunity:read",
+      "interaction:read", "interaction:create", "interaction:update", "analytics:read",
+    ],
+  },
+  { key: "direccion", name: "Dirección", internal: true, permissions: ["*:read", "analytics:export"] },
+  /* Auditor: lectura global más exportar resultados y auditoría, y los dos
+     permisos literales que abren datos personales (ADR-009, decisión 5). */
+  {
+    key: "auditor",
+    name: "Auditor",
+    internal: true,
+    permissions: ["*:read", "analytics:export", "audit:export", "session:inspect", "user:read-affiliates"],
+  },
+  /* Roles de empresa: no cambian (ADR-008). */
   { key: "gerente", name: "Gerente afiliado", internal: false, permissions: ["organization:read", "organization:update", "billing:*", "certificate:read", "directory:*", "opportunity:*", "user:read", "user:invite", "user:manage"] },
   { key: "talento", name: "Talento humano afiliado", internal: false, permissions: ["training:*", "community:read", "organization:read"] },
   { key: "contacto", name: "Contacto afiliado", internal: false, permissions: ["organization:read", "training:read"] },
@@ -150,12 +261,19 @@ async function main() {
  * login cuando el proveedor de identidad confirma el mismo correo verificado
  * (ADR-008). Coinciden con los usuarios del realm de desarrollo de Keycloak
  * (`infra/docker/keycloak/`). Dos Super Admin porque la regla RA-ACC-008 exige
- * que nunca haya menos.
+ * que nunca haya menos; uno por cada uno de los demás roles internos (ADR-009).
  */
 const USUARIOS_DEV = [
   { email: "superadmin1@fedesoft-dev.test", name: "Super Admin Uno", internalRole: "super-admin" },
   { email: "superadmin2@fedesoft-dev.test", name: "Super Admin Dos", internalRole: "super-admin" },
   { email: "operaciones@fedesoft-dev.test", name: "Operaciones Dev", internalRole: "operaciones" },
+  { email: "cartera@fedesoft-dev.test", name: "Cartera Dev", internalRole: "cartera" },
+  { email: "formacion@fedesoft-dev.test", name: "Formación Dev", internalRole: "formacion" },
+  { email: "comunicaciones@fedesoft-dev.test", name: "Comunicaciones Dev", internalRole: "comunicaciones" },
+  { email: "relacionamiento@fedesoft-dev.test", name: "Relacionamiento Dev", internalRole: "relacionamiento" },
+  { email: "kam@fedesoft-dev.test", name: "Gestor de Cuenta Dev", internalRole: "kam" },
+  { email: "direccion@fedesoft-dev.test", name: "Dirección Dev", internalRole: "direccion" },
+  { email: "auditor@fedesoft-dev.test", name: "Auditor Dev", internalRole: "auditor" },
   { email: "camilo.restrepo@datalabs-andina.test", name: "Camilo Restrepo", orgRole: "gerente" },
   { email: "diana.salazar@datalabs-andina.test", name: "Diana Salazar", orgRole: "talento" },
 ] as const;
