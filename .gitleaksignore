@@ -1,0 +1,6 @@
+# Falsos positivos revisados. Cada línea es la huella de un hallazgo de gitleaks
+# que se verificó a mano y no es un secreto real.
+
+# Valor de ejemplo de PAYMENT_WEBHOOK_SECRET en .env.example (ya retirado);
+# nunca fue un secreto utilizable.
+7f795cc202574bf39f77dcccc32c8ee0df1ba9d4:apps/api/.env.example:generic-api-key:8
