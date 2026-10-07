@@ -23,6 +23,8 @@ Todos los usuarios usan la contraseña `Fedesoft.dev1`. Los internos entran por 
 | `camilo.restrepo@datalabs-andina.test` | Gerente (Datalabs Andina) | — |
 | `diana.salazar@datalabs-andina.test` | Talento (Datalabs Andina) | — |
 
+`kam@fedesoft-dev.test` existe porque lo crea la semilla; la consola todavía no deja asignar el rol `kam` a nadie (ADR-009, b), así que no se pueden crear más gestores de cuenta desde ahí.
+
 **Secretos TOTP: solo desarrollo, públicos y sintéticos.** Cada usuario con TOTP preconfigurado tiene un secreto distinto, así una app autenticadora puede guardar varios sin mezclarlos. El secreto es el texto `fedesoft-dev-totp-<clave>-solo-local` (el de `superadmin1` no lleva clave: `fedesoft-dev-totp-solo-local`); abajo, su forma base32 para añadirlo a una app autenticadora. Algoritmo SHA-1, 6 dígitos, 30 s. Ningún otro entorno los usa: allí el segundo factor lo enrola cada persona con el proveedor.
 
 | Usuario | Secreto TOTP (base32) |
