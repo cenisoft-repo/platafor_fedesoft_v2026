@@ -20,7 +20,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-/* ─────────────────────────── Enumeraciones ─────────────────────────── */
+/**
+ * ─────────────────────────── Enumeraciones ───────────────────────────
+ */
 
 enum Segment {
   MIPYME
@@ -87,6 +89,21 @@ enum UserStatus {
   BLOQUEADO
 }
 
+/// Estado del vínculo de un usuario con UNA empresa. Es distinto del estado
+/// global del usuario: el gerente de una empresa desactiva el acceso a la
+/// suya, no la cuenta de una persona que puede pertenecer a varias.
+enum OrganizationUserStatus {
+  INVITADO
+  ACTIVO
+  DESACTIVADO
+}
+
+/// Portal y consola son superficies distintas, con cookie y reglas propias.
+enum SessionChannel {
+  PORTAL
+  CONSOLA
+}
+
 enum ParameterScope {
   GLOBAL
   SEGMENTO
@@ -99,24 +116,26 @@ enum OutboxStatus {
   FALLIDO
 }
 
-/* ─────────────────────────────── Núcleo ─────────────────────────────── */
+/**
+ * ─────────────────────────────── Núcleo ───────────────────────────────
+ */
 
 model Organization {
-  id         String             @id @default(uuid()) @db.Uuid
+  id        String             @id @default(uuid()) @db.Uuid
   /// NIT sin puntos ni guion, con dígito de verificación aparte: un NIT es
   /// una identidad, y escribirlo de dos formas crearía dos empresas.
-  nit        String             @unique @db.VarChar(15)
-  nitDv      String             @map("nit_dv") @db.Char(1)
-  legalName  String             @map("legal_name") @db.VarChar(300)
-  tradeName  String?            @map("trade_name") @db.VarChar(300)
-  segment    Segment
-  status     OrganizationStatus @default(PROSPECTO)
-  employees  Int?
-  city       String?            @db.VarChar(120)
-  sector     String?            @db.VarChar(180)
-  website    String?            @db.VarChar(300)
-  createdAt  DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt  DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
+  nit       String             @unique @db.VarChar(15)
+  nitDv     String             @map("nit_dv") @db.Char(1)
+  legalName String             @map("legal_name") @db.VarChar(300)
+  tradeName String?            @map("trade_name") @db.VarChar(300)
+  segment   Segment
+  status    OrganizationStatus @default(PROSPECTO)
+  employees Int?
+  city      String?            @db.VarChar(120)
+  sector    String?            @db.VarChar(180)
+  website   String?            @db.VarChar(300)
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime           @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   contacts          Contact[]
   memberships       Membership[]
@@ -158,12 +177,17 @@ model User {
   /// Sujeto del proveedor OIDC. La identidad es intercambiable (ADR-002), así
   /// que aquí no vive ninguna contraseña ni credencial.
   authSubject String?    @unique @map("auth_subject") @db.VarChar(255)
+  /// Nombre que entrega el proveedor de identidad. Para el afiliado, el dato
+  /// de referencia sigue siendo el `Contact` de su empresa.
+  name        String?    @db.VarChar(200)
   status      UserStatus @default(INVITADO)
   lastLoginAt DateTime?  @map("last_login_at") @db.Timestamptz(6)
   createdAt   DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt   DateTime   @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organizationUsers OrganizationUser[]
+  internalRoles     UserInternalRole[]
+  sessions          Session[]
 
   @@map("users")
 }
@@ -177,28 +201,110 @@ model Role {
   permissions String[]
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
 
-  organizationUsers OrganizationUser[]
+  organizationUsers   OrganizationUser[]
+  internalAssignments UserInternalRole[]
 
+  /// Requisito de las claves compuestas (role_id, role_internal): son las que
+  /// impiden, en la base, dar un rol interno dentro de una empresa afiliada o
+  /// un rol de empresa como rol interno.
+  @@unique([id, internal], map: "roles_id_internal_unique")
   @@map("roles")
 }
 
 model OrganizationUser {
-  id             String   @id @default(uuid()) @db.Uuid
-  organizationId String   @map("organization_id") @db.Uuid
-  userId         String   @map("user_id") @db.Uuid
-  contactId      String?  @map("contact_id") @db.Uuid
-  roleId         String   @map("role_id") @db.Uuid
-  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  id              String                 @id @default(uuid()) @db.Uuid
+  organizationId  String                 @map("organization_id") @db.Uuid
+  userId          String                 @map("user_id") @db.Uuid
+  contactId       String?                @map("contact_id") @db.Uuid
+  roleId          String                 @map("role_id") @db.Uuid
+  /// Siempre falso (CHECK). Junto con role_id forma la clave hacia roles que
+  /// impide asignar un rol interno de Fedesoft dentro de una empresa.
+  roleInternal    Boolean                @default(false) @map("role_internal")
+  status          OrganizationUserStatus @default(ACTIVO)
+  /// Una invitación sin vencimiento es una puerta que nadie recuerda haber
+  /// dejado abierta: el estado INVITADO exige fecha de expiración (CHECK).
+  inviteExpiresAt DateTime?              @map("invite_expires_at") @db.Timestamptz(6)
+  invitedByUserId String?                @map("invited_by_user_id") @db.Uuid
+  createdAt       DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime               @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
   contact      Contact?     @relation(fields: [contactId], references: [id], onDelete: SetNull)
-  role         Role         @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  role         Role         @relation(fields: [roleId, roleInternal], references: [id, internal], onDelete: Restrict, map: "org_users_external_role")
+  sessions     Session[]
 
   @@unique([organizationId, userId])
   @@index([userId])
   @@index([organizationId])
   @@map("organization_users")
+}
+
+/// Roles internos de Fedesoft. Un usuario interno puede tener varios
+/// (docs/01-consola-administracion.md §2.1) y no pertenecen a ninguna empresa.
+model UserInternalRole {
+  userId          String   @map("user_id") @db.Uuid
+  roleId          String   @map("role_id") @db.Uuid
+  /// Siempre verdadero (CHECK): la clave compuesta solo admite roles internos.
+  roleInternal    Boolean  @default(true) @map("role_internal")
+  grantedByUserId String?  @map("granted_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role Role @relation(fields: [roleId, roleInternal], references: [id, internal], onDelete: Restrict, map: "user_internal_roles_internal_role")
+
+  @@id([userId, roleId])
+  @@index([roleId])
+  @@map("user_internal_roles")
+}
+
+/// Sesión de servidor. El navegador guarda un token opaco; aquí solo vive su
+/// hash, así que un volcado de esta tabla no sirve para suplantar a nadie.
+model Session {
+  id             String         @id @default(uuid()) @db.Uuid
+  tokenHash      String         @unique @map("token_hash") @db.Char(64)
+  userId         String         @map("user_id") @db.Uuid
+  channel        SessionChannel
+  /// Empresa activa (solo portal). La clave compuesta hacia organization_users
+  /// garantiza en la base que el usuario pertenece a ella, y que la sesión
+  /// muere si ese vínculo se borra.
+  organizationId String?        @map("organization_id") @db.Uuid
+  /// El proveedor confirmó segundo factor. Una sesión de consola sin MFA no
+  /// puede existir (CHECK).
+  mfa            Boolean        @default(false)
+  ipAddress      String?        @map("ip_address") @db.VarChar(64)
+  userAgent      String?        @map("user_agent") @db.VarChar(300)
+  idleTimeoutSec Int            @map("idle_timeout_sec")
+  expiresAt      DateTime       @map("expires_at") @db.Timestamptz(6)
+  lastSeenAt     DateTime       @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  revokedAt      DateTime?      @map("revoked_at") @db.Timestamptz(6)
+  revokedReason  String?        @map("revoked_reason") @db.VarChar(60)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organizationUser OrganizationUser? @relation(fields: [organizationId, userId], references: [organizationId, userId], onDelete: Cascade, map: "sessions_member_of_org")
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// Estado efímero entre el inicio del login y el regreso del proveedor
+/// (state, nonce y verificador PKCE). Un solo uso y diez minutos de vida.
+model AuthFlow {
+  id           String         @id @default(uuid()) @db.Uuid
+  stateHash    String         @unique @map("state_hash") @db.Char(64)
+  channel      SessionChannel
+  nonce        String         @db.VarChar(128)
+  codeVerifier String         @map("code_verifier") @db.VarChar(128)
+  /// Ruta relativa dentro de la aplicación. Nunca una URL absoluta: sería una
+  /// redirección abierta firmada por nuestro dominio.
+  returnTo     String         @map("return_to") @db.VarChar(300)
+  expiresAt    DateTime       @map("expires_at") @db.Timestamptz(6)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([expiresAt])
+  @@map("auth_flows")
 }
 
 model Membership {
@@ -220,22 +326,24 @@ model Membership {
   @@map("memberships")
 }
 
-/* ───────────────────────── Cartera y facturación ───────────────────── */
+/**
+ * ───────────────────────── Cartera y facturación ─────────────────────
+ */
 
 model Charge {
-  id             String       @id @default(uuid()) @db.Uuid
-  organizationId String       @map("organization_id") @db.Uuid
-  concept        String       @db.VarChar(240)
-  period         String       @db.VarChar(20)
+  id                 String       @id @default(uuid()) @db.Uuid
+  organizationId     String       @map("organization_id") @db.Uuid
+  concept            String       @db.VarChar(240)
+  period             String       @db.VarChar(20)
   /// Decimal, nunca punto flotante: el dinero no se redondea por accidente.
-  amount         Decimal      @db.Decimal(14, 2)
-  currency       String       @default("COP") @db.Char(3)
-  dueDate        DateTime     @map("due_date") @db.Date
-  status         ChargeStatus @default(PENDIENTE)
+  amount             Decimal      @db.Decimal(14, 2)
+  currency           String       @default("COP") @db.Char(3)
+  dueDate            DateTime     @map("due_date") @db.Date
+  status             ChargeStatus @default(PENDIENTE)
   /// Tarifa que lo originó, para poder explicar de dónde salió el monto.
-  parameterVersionId String?  @map("parameter_version_id") @db.Uuid
-  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
+  parameterVersionId String?      @map("parameter_version_id") @db.Uuid
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt          DateTime     @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   parameterVersion ParameterVersion? @relation(fields: [parameterVersionId], references: [id], onDelete: SetNull)
@@ -306,20 +414,20 @@ model PaymentCharge {
 }
 
 model Invoice {
-  id             String        @id @default(uuid()) @db.Uuid
-  organizationId String        @map("organization_id") @db.Uuid
-  paymentId      String        @unique @map("payment_id") @db.Uuid
-  number         String?       @unique @db.VarChar(40)
+  id              String        @id @default(uuid()) @db.Uuid
+  organizationId  String        @map("organization_id") @db.Uuid
+  paymentId       String        @unique @map("payment_id") @db.Uuid
+  number          String?       @unique @db.VarChar(40)
   /// Código Único de Factura Electrónica. Nulo mientras la DIAN no responda:
   /// una factura sin CUFE no está emitida, y el estado debe poder decirlo.
-  cufe           String?       @unique @db.VarChar(96)
-  status         InvoiceStatus @default(EN_PROCESO)
-  issuedAt       DateTime?     @map("issued_at") @db.Timestamptz(6)
+  cufe            String?       @unique @db.VarChar(96)
+  status          InvoiceStatus @default(EN_PROCESO)
+  issuedAt        DateTime?     @map("issued_at") @db.Timestamptz(6)
   /// Respuesta cruda del facturador, para poder auditar y reconciliar.
-  providerPayload Json?        @map("provider_payload")
-  rejectionReason String?      @map("rejection_reason") @db.VarChar(500)
-  createdAt      DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt      DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  providerPayload Json?         @map("provider_payload")
+  rejectionReason String?       @map("rejection_reason") @db.VarChar(500)
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   /// Compuesta a propósito: una factura no puede salir a nombre de una
@@ -334,17 +442,17 @@ model Invoice {
 }
 
 model Certificate {
-  id             String            @id @default(uuid()) @db.Uuid
-  organizationId String            @map("organization_id") @db.Uuid
-  folio          String            @unique @db.VarChar(40)
+  id                 String            @id @default(uuid()) @db.Uuid
+  organizationId     String            @map("organization_id") @db.Uuid
+  folio              String            @unique @db.VarChar(40)
   /// Retrato del estado en el momento de emitir: qué decía la afiliación,
   /// bajo qué regla y con qué vigencia. El PDF debe poder reconstruirse.
-  membershipSnapshot Json          @map("membership_snapshot")
-  status         CertificateStatus @default(VIGENTE)
-  issuedAt       DateTime          @default(now()) @map("issued_at") @db.Timestamptz(6)
-  validUntil     DateTime          @map("valid_until") @db.Date
-  fileKey        String?           @map("file_key") @db.VarChar(400)
-  revokedAt      DateTime?         @map("revoked_at") @db.Timestamptz(6)
+  membershipSnapshot Json              @map("membership_snapshot")
+  status             CertificateStatus @default(VIGENTE)
+  issuedAt           DateTime          @default(now()) @map("issued_at") @db.Timestamptz(6)
+  validUntil         DateTime          @map("valid_until") @db.Date
+  fileKey            String?           @map("file_key") @db.VarChar(400)
+  revokedAt          DateTime?         @map("revoked_at") @db.Timestamptz(6)
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
 
@@ -352,7 +460,9 @@ model Certificate {
   @@map("certificates")
 }
 
-/* ───────────────────── Afiliación: la puerta de entrada ────────────── */
+/**
+ * ───────────────────── Afiliación: la puerta de entrada ──────────────
+ */
 
 model AffiliationRequest {
   id           String                   @id @default(uuid()) @db.Uuid
@@ -388,7 +498,9 @@ model AffiliationRequest {
   @@map("affiliation_requests")
 }
 
-/* ──────────────── Config: las reglas que Fedesoft cambia ───────────── */
+/**
+ * ──────────────── Config: las reglas que Fedesoft cambia ─────────────
+ */
 
 model Parameter {
   id          String         @id @default(uuid()) @db.Uuid
@@ -422,7 +534,9 @@ model ParameterVersion {
   @@map("parameter_versions")
 }
 
-/* ───────────────── Integridad: outbox, webhooks, auditoría ─────────── */
+/**
+ * ───────────────── Integridad: outbox, webhooks, auditoría ───────────
+ */
 
 /// Patrón outbox: el cambio y su evento se confirman en la misma transacción.
 /// Si el proceso muere antes de publicar, el evento sigue aquí.

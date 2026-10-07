@@ -2,7 +2,9 @@
   "name": "fedesoft-portal",
   "private": true,
   "packageManager": "pnpm@10.33.0",
-  "engines": { "node": ">=22.0.0" },
+  "engines": {
+    "node": ">=22.0.0"
+  },
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
@@ -18,5 +20,11 @@
   "devDependencies": {
     "turbo": "2.6.1",
     "typescript": "5.7.2"
+  },
+  "pnpm": {
+    "overrides": {
+      "@prisma/config>deepmerge-ts": "8.0.2"
+    },
+    "//overrides": "deepmerge-ts 8 corrige GHSA-ggr8-5vv4-36mx (agotamiento de pila). Prisma 6.19.3, la última de la mayor 6, aún fija la 7.x; @prisma/config solo usa deepmerge(), que la 8 mantiene. Retirar al subir a una Prisma que traiga la 8."
   }
 }

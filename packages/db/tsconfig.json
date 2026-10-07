@@ -3,7 +3,10 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": "src",
-    "types": ["node"]
+    "types": ["node"],
+    /* El .tsbuildinfo vive fuera de dist/: si dist/ se borra, tsc lo da por
+       compilado y no emite nada, y el API no encuentra @fedesoft/db. */
+    "incremental": false
   },
   "include": ["src/**/*.ts"]
 }

@@ -1,4 +1,5 @@
 import { Controller, Headers, HttpCode, Post, Req, VERSION_NEUTRAL } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
 import { ApiExcludeController } from "@nestjs/swagger";
 import type { RawBodyRequest } from "@nestjs/common";
 import type { Request } from "express";
@@ -13,6 +14,9 @@ import { ConfirmPaymentUseCase } from "./domain/confirm-payment.use-case.js";
  * Por eso lleva `@Public` explícito y no una excepción escondida en el guard.
  */
 @ApiExcludeController()
+/* Sin límite por IP: la pasarela reintenta desde pocas IP y un 429 aquí
+   retrasaría confirmaciones de pago. La firma se verifica antes de todo. */
+@SkipThrottle()
 @Controller({ path: "webhooks", version: VERSION_NEUTRAL })
 export class WebhooksController {
   constructor(private readonly confirmar: ConfirmPaymentUseCase) {}

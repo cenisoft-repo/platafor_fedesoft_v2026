@@ -1,9 +1,12 @@
 import { Controller, Get, VERSION_NEUTRAL } from "@nestjs/common";
+import { SkipThrottle } from "@nestjs/throttler";
 import { ApiOperation, ApiTags } from "@nestjs/swagger";
 import { PrismaService } from "../prisma/prisma.service.js";
 import { Public } from "../common/permissions.js";
 
 @ApiTags("salud")
+/* Las sondas del orquestador no deben toparse con el límite de peticiones. */
+@SkipThrottle()
 @Controller({ path: "health", version: VERSION_NEUTRAL })
 export class HealthController {
   constructor(private readonly prisma: PrismaService) {}

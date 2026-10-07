@@ -6,15 +6,28 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { Reflector } from "@nestjs/core";
-import { ForbiddenException } from "@nestjs/common";
+import "reflect-metadata";
+import { ForbiddenException, UnauthorizedException } from "@nestjs/common";
+import { PATH_METADATA } from "@nestjs/common/constants";
 import { DenyByDefaultGuard, type ActorContext } from "../src/common/deny-by-default.guard.js";
-import { PERMISSION_KEY, PUBLIC_KEY, SENSITIVE_PERMISSIONS, grants } from "../src/common/permissions.js";
+import {
+  AUTHENTICATED_KEY,
+  PERMISSION_KEY,
+  PUBLIC_KEY,
+  SENSITIVE_PERMISSIONS,
+  grants,
+  canDelegate,
+  isConsoleController,
+  isConsoleRoute,
+} from "../src/common/permissions.js";
 import { loadEnv } from "../src/config/env.js";
 
 /** Contexto mínimo de Nest, con los metadatos que declararía un decorador. */
-function contexto(meta: Record<string, unknown>, actor?: ActorContext) {
+function contexto(meta: Record<string, unknown>, actor?: ActorContext, rutaControlador = "payments") {
   const handler = () => undefined;
   const clase = class {};
+  /* Lo que escribiría @Controller({ path }): el guard decide la superficie con esto. */
+  Reflect.defineMetadata(PATH_METADATA, rutaControlador, clase);
   const reflector = {
     getAllAndOverride: (key: string) => meta[key],
   } as unknown as Reflector;
@@ -43,9 +56,59 @@ test("un endpoint marcado público se sirve sin sesión", () => {
   assert.equal(guard.canActivate(ctx), true);
 });
 
-test("con permiso declarado y sin sesión se deniega", () => {
+test("con permiso declarado y sin sesión se responde 401", () => {
   const { guard, ctx } = contexto({ [PERMISSION_KEY]: "billing:read" });
+  assert.throws(() => guard.canActivate(ctx), UnauthorizedException);
+});
+
+test("@Authenticated exige sesión pero ningún permiso", () => {
+  const sinPermisos: ActorContext = { ...GERENTE, organizationId: null, permissions: [] };
+  assert.equal(contexto({ [AUTHENTICATED_KEY]: true }, sinPermisos).guard.canActivate(
+    contexto({ [AUTHENTICATED_KEY]: true }, sinPermisos).ctx,
+  ), true);
+  const anonimo = contexto({ [AUTHENTICATED_KEY]: true });
+  assert.throws(() => anonimo.guard.canActivate(anonimo.ctx), UnauthorizedException);
+});
+
+const INTERNO: ActorContext = { userId: "u9", organizationId: null, permissions: ["*"], internal: true };
+
+test("la consola solo acepta actores internos, aunque el permiso alcance", () => {
+  const gerenteEnConsola = contexto({ [PERMISSION_KEY]: "billing:read" }, GERENTE, "admin/v1/users");
+  assert.throws(() => gerenteEnConsola.guard.canActivate(gerenteEnConsola.ctx), ForbiddenException);
+  const internoEnConsola = contexto({ [PERMISSION_KEY]: "user:read" }, INTERNO, "admin/v1/users");
+  assert.equal(internoEnConsola.guard.canActivate(internoEnConsola.ctx), true);
+});
+
+test("un actor interno no opera en el portal", () => {
+  /* Las sesiones de consola no tienen empresa: dejarlas pasar al portal
+     abriría endpoints que asumen un organizationId. */
+  const { guard, ctx } = contexto({ [PERMISSION_KEY]: "billing:read" }, INTERNO, "payments");
   assert.throws(() => guard.canActivate(ctx), ForbiddenException);
+});
+
+test("la superficie sale del controlador, no del texto de la URL (hallazgo A5 C1)", () => {
+  /* Express enruta /ADMIN/v1/users y "GET http://host/admin/v1/users" al
+     controlador de la consola. Con la decisión por URL, una sesión de portal
+     pasaba; con la decisión por controlador, no hay texto que manipular. */
+  for (const declarado of ["admin/v1/users", "/admin/v1/users", "Admin/V1/Users", ["admin/v1/x", "otro"]]) {
+    const { guard, ctx } = contexto({ [PERMISSION_KEY]: "user:read" }, { ...GERENTE, permissions: ["user:read"] }, declarado as string);
+    assert.throws(() => guard.canActivate(ctx), ForbiddenException, `debió negar ${JSON.stringify(declarado)}`);
+  }
+  assert.equal(isConsoleController("administracion"), false);
+  assert.equal(isConsoleController("auth"), false);
+  assert.equal(isConsoleController(undefined), false);
+});
+
+test("isConsoleRoute no se engaña con prefijos parecidos ni con mayúsculas", () => {
+  assert.equal(isConsoleRoute("/ADMIN/v1/users"), true);
+  assert.equal(isConsoleRoute("/Admin/V1/Users"), true);
+  assert.equal(isConsoleRoute("/admin/v1/users"), true);
+  assert.equal(isConsoleRoute("/admin"), true);
+  assert.equal(isConsoleRoute("/admin/v1/users?x=1"), true);
+  assert.equal(isConsoleRoute("/administracion"), false);
+  assert.equal(isConsoleRoute("/v1/admin/users"), false);
+  assert.equal(isConsoleRoute("/v1/x?next=/admin/"), false);
+  assert.equal(isConsoleRoute(undefined), false);
 });
 
 test("el comodín de dominio cubre la acción", () => {
@@ -107,6 +170,12 @@ test("el rol gerente de la semilla no alcanza a reembolsar", () => {
 const ENV_BASE = {
   DATABASE_URL: "postgresql://u:p@h:5432/d",
   PAYMENT_WEBHOOK_SECRET: "x".repeat(32),
+  API_PUBLIC_URL: "http://localhost:3000",
+  PORTAL_URL: "http://localhost:3001",
+  CONSOLE_URL: "http://localhost:3002",
+  OIDC_ISSUER_URL: "http://localhost:8080/realms/fedesoft",
+  OIDC_CLIENT_ID: "portal-api",
+  OIDC_CLIENT_SECRET: "s".repeat(16),
 } as unknown as NodeJS.ProcessEnv;
 
 test("el entorno inválido impide arrancar", () => {
@@ -134,4 +203,54 @@ test("el entorno válido carga con valores por defecto sanos", () => {
   const env = loadEnv(ENV_BASE);
   assert.equal(env.NODE_ENV, "development");
   assert.equal(env.PORT, 3000);
+});
+
+test("sin configuración OIDC no se arranca", () => {
+  for (const clave of ["OIDC_ISSUER_URL", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET", "API_PUBLIC_URL"]) {
+    const { [clave]: _omitida, ...resto } = ENV_BASE as Record<string, string>;
+    assert.throws(() => loadEnv(resto as NodeJS.ProcessEnv), new RegExp(clave));
+  }
+  assert.throws(() => loadEnv({ ...ENV_BASE, OIDC_CLIENT_SECRET: "corto" }), /OIDC_CLIENT_SECRET/);
+});
+
+test("en producción las URL de identidad deben ser https", () => {
+  const prod = { ...ENV_BASE, NODE_ENV: "production", CORS_ORIGINS: "https://portal.example" };
+  assert.throws(() => loadEnv(prod as NodeJS.ProcessEnv), /https/);
+  const seguro = {
+    ...prod,
+    API_PUBLIC_URL: "https://api.example",
+    PORTAL_URL: "https://portal.example",
+    CONSOLE_URL: "https://consola.example",
+    OIDC_ISSUER_URL: "https://id.example/realms/fedesoft",
+  };
+  assert.equal(loadEnv(seguro as NodeJS.ProcessEnv).NODE_ENV, "production");
+});
+
+test("por defecto, swk/hwk no cuentan como segundo factor", () => {
+  assert.equal(loadEnv(ENV_BASE).OIDC_MFA_VALUES, "otp,mfa");
+});
+
+test("en producción se rechazan los secretos de ejemplo", () => {
+  const prod = {
+    ...ENV_BASE,
+    NODE_ENV: "production",
+    CORS_ORIGINS: "https://portal.example",
+    API_PUBLIC_URL: "https://api.example",
+    PORTAL_URL: "https://portal.example",
+    CONSOLE_URL: "https://consola.example",
+    OIDC_ISSUER_URL: "https://id.example/realms/fedesoft",
+  };
+  assert.throws(() => loadEnv({ ...prod, OIDC_CLIENT_SECRET: "cambiar-secreto-local-del-cliente" } as NodeJS.ProcessEnv), /OIDC_CLIENT_SECRET/);
+});
+
+test("canDelegate: nadie reparte más de lo que tiene", () => {
+  assert.equal(canDelegate(["*", "role:assign"], "*"), true);
+  assert.equal(canDelegate(["*", "role:assign"], "role:assign"), true);
+  assert.equal(canDelegate(["*"], "role:assign"), false);
+  assert.equal(canDelegate(["role:assign", "user:read"], "*"), false);
+  assert.equal(canDelegate(["billing:*"], "billing:*"), true);
+  assert.equal(canDelegate(["billing:read"], "billing:*"), false);
+  assert.equal(canDelegate(["*:read"], "*:read"), true);
+  assert.equal(canDelegate(["billing:*"], "*:read"), false);
+  assert.equal(canDelegate(["billing:*"], "billing:read"), true);
 });

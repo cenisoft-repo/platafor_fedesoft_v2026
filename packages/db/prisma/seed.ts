@@ -7,14 +7,22 @@
  */
 import { PrismaClient, Segment } from "@prisma/client";
 
+/* Usuarios con correos conocidos y roles altos: en producción serían una
+   puerta de entrada. La semilla se niega a correr ahí. */
+if (process.env.NODE_ENV === "production") {
+  throw new Error("La semilla sintética no corre con NODE_ENV=production.");
+}
+
 const prisma = new PrismaClient();
 
 const ROLES = [
-  { key: "super-admin", name: "Super Admin Fedesoft", internal: true, permissions: ["*"] },
+  /* `role:assign` es sensible: ningún comodín lo concede, ni siquiera `*`, así
+     que se declara de forma explícita. */
+  { key: "super-admin", name: "Super Admin Fedesoft", internal: true, permissions: ["*", "role:assign"] },
   { key: "operaciones", name: "Operaciones Fedesoft", internal: true, permissions: ["affiliation:*", "billing:read", "billing:reconcile", "organization:*", "training:*"] },
   { key: "kam", name: "Gestor de cuenta", internal: true, permissions: ["organization:read", "interaction:*", "opportunity:read"] },
   { key: "auditor", name: "Auditor", internal: true, permissions: ["*:read"] },
-  { key: "gerente", name: "Gerente afiliado", internal: false, permissions: ["organization:read", "organization:update", "billing:*", "certificate:read", "directory:*", "opportunity:*"] },
+  { key: "gerente", name: "Gerente afiliado", internal: false, permissions: ["organization:read", "organization:update", "billing:*", "certificate:read", "directory:*", "opportunity:*", "user:read", "user:invite", "user:manage"] },
   { key: "talento", name: "Talento humano afiliado", internal: false, permissions: ["training:*", "community:read", "organization:read"] },
   { key: "contacto", name: "Contacto afiliado", internal: false, permissions: ["organization:read", "training:read"] },
 ];
@@ -96,8 +104,8 @@ async function main() {
       website: "datalabsandina.co",
       contacts: {
         create: [
-          { name: "Camilo Restrepo", email: "camilo.restrepo@datalabsandina.co", phone: "+57 310 555 1420", jobTitle: "Gerente General" },
-          { name: "Diana Salazar", email: "diana.salazar@datalabsandina.co", phone: "+57 320 555 8891", jobTitle: "Líder de Talento Humano" },
+          { name: "Camilo Restrepo", email: "camilo.restrepo@datalabs-andina.test", phone: "+57 310 555 1420", jobTitle: "Gerente General" },
+          { name: "Diana Salazar", email: "diana.salazar@datalabs-andina.test", phone: "+57 320 555 8891", jobTitle: "Líder de Talento Humano" },
         ],
       },
       memberships: {
@@ -130,9 +138,111 @@ async function main() {
     },
   });
 
+  await sembrarIdentidad(empresa.id);
+
   process.stdout.write(
-    `Semilla lista: ${ROLES.length} roles, 2 parámetros versionados, 1 empresa con afiliación y cargo.\n`,
+    `Semilla lista: ${ROLES.length} roles, 4 parámetros versionados, 1 empresa con afiliación y cargo, ${USUARIOS_DEV.length} usuarios de desarrollo.\n`,
   );
+}
+
+/**
+ * Usuarios sintéticos. Ninguno trae `authSubject`: se vinculan en su primer
+ * login cuando el proveedor de identidad confirma el mismo correo verificado
+ * (ADR-008). Coinciden con los usuarios del realm de desarrollo de Keycloak
+ * (`infra/docker/keycloak/`). Dos Super Admin porque la regla RA-ACC-008 exige
+ * que nunca haya menos.
+ */
+const USUARIOS_DEV = [
+  { email: "superadmin1@fedesoft-dev.test", name: "Super Admin Uno", internalRole: "super-admin" },
+  { email: "superadmin2@fedesoft-dev.test", name: "Super Admin Dos", internalRole: "super-admin" },
+  { email: "operaciones@fedesoft-dev.test", name: "Operaciones Dev", internalRole: "operaciones" },
+  { email: "camilo.restrepo@datalabs-andina.test", name: "Camilo Restrepo", orgRole: "gerente" },
+  { email: "diana.salazar@datalabs-andina.test", name: "Diana Salazar", orgRole: "talento" },
+] as const;
+
+async function sembrarIdentidad(organizationId: string) {
+  const sesion = await prisma.parameter.upsert({
+    where: { key: "identidad.sesion" },
+    update: {},
+    create: {
+      key: "identidad.sesion",
+      description:
+        "Duración máxima e inactividad permitida de las sesiones, por canal. La consola usa sesiones cortas (RA-ACC-007).",
+      scope: "GLOBAL",
+    },
+  });
+  await prisma.parameterVersion.upsert({
+    where: { parameterId_version: { parameterId: sesion.id, version: 1 } },
+    update: {},
+    create: {
+      parameterId: sesion.id,
+      version: 1,
+      value: {
+        portal: { horasMaximas: 12, minutosInactividad: 60 },
+        consola: { horasMaximas: 8, minutosInactividad: 30 },
+      },
+      validFrom: new Date("2026-01-01"),
+      approvedBy: "Propuesta por defecto (docs/01-consola-administracion.md §7) — pendiente de aprobación.",
+    },
+  });
+
+  const invitacion = await prisma.parameter.upsert({
+    where: { key: "identidad.invitacion" },
+    update: {},
+    create: {
+      key: "identidad.invitacion",
+      description: "Horas de vigencia de una invitación a una empresa antes de que deba reenviarse (RF-IDE-006).",
+      scope: "GLOBAL",
+    },
+  });
+  await prisma.parameterVersion.upsert({
+    where: { parameterId_version: { parameterId: invitacion.id, version: 1 } },
+    update: {},
+    create: {
+      parameterId: invitacion.id,
+      version: 1,
+      value: { horasVigencia: 72 },
+      validFrom: new Date("2026-01-01"),
+      approvedBy: "Propuesta por defecto — pendiente de aprobación.",
+    },
+  });
+
+  const roles = new Map((await prisma.role.findMany()).map((r) => [r.key, r.id]));
+  const rolId = (key: string) => {
+    const id = roles.get(key);
+    if (!id) throw new Error(`Rol ${key} no sembrado.`);
+    return id;
+  };
+
+  for (const u of USUARIOS_DEV) {
+    const usuario = await prisma.user.upsert({
+      where: { email: u.email },
+      update: {},
+      create: { email: u.email, name: u.name, status: "INVITADO" },
+    });
+    if ("internalRole" in u) {
+      await prisma.userInternalRole.upsert({
+        where: { userId_roleId: { userId: usuario.id, roleId: rolId(u.internalRole) } },
+        update: {},
+        create: { userId: usuario.id, roleId: rolId(u.internalRole) },
+      });
+    } else {
+      const contacto = await prisma.contact.findUnique({
+        where: { organizationId_email: { organizationId, email: u.email } },
+      });
+      await prisma.organizationUser.upsert({
+        where: { organizationId_userId: { organizationId, userId: usuario.id } },
+        update: {},
+        create: {
+          organizationId,
+          userId: usuario.id,
+          contactId: contacto?.id ?? null,
+          roleId: rolId(u.orgRole),
+          status: "ACTIVO",
+        },
+      });
+    }
+  }
 }
 
 main()

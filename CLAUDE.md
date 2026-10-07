@@ -5,7 +5,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
 
 ## Estado del proyecto
 
-- **Fase actual:** 0 · Fundación **en curso** (EPIC-00 entregado). El monorepo existe: `apps/api`, `packages/db`, `packages/config`, `infra/docker` y CI.
+- **Fase actual:** 0 · Fundación **en curso** (EPIC-00 entregado; login OIDC, sesiones y gestión de usuarios del API entregados, ADR-008). El monorepo existe: `apps/api`, `packages/db`, `packages/config`, `infra/docker` y CI.
 - **Cómo levantarlo y la puerta de calidad:** `README.md`. Antes de tocar código: `pnpm install && pnpm db:migrate`.
 - **Plan operativo:** `docs/00-plan-de-ejecucion.md` (qué, cómo, cuándo, agentes y modelo). Es el índice de trabajo.
 - **Documentos rectores (fuente de verdad documental):**
@@ -18,6 +18,7 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
   - `docs/06-estado-vs-alcance.md` — qué demuestra hoy el prototipo frente a los nueve módulos exigidos, y la ruta en tres etapas para cerrar la brecha.
   - `docs/adr/ADR-006-fundacion-monorepo-y-datos.md` — qué se construyó en EPIC-00 y por qué las invariantes viven en la base de datos.
   - `docs/adr/ADR-007-recorrido-critico-pago-factura-certificado.md` — el recorrido pago → factura → certificado, sus controles y el orden en que se aplican.
+  - `docs/adr/ADR-008-identidad-sesiones-y-gestion-de-usuarios.md` — login OIDC, sesiones de servidor, CSRF, invitaciones y gestión de usuarios por empresa y desde la consola.
   - `docs/adr/` — decisiones de arquitectura. Toda decisión nueva que altere datos, seguridad o negocio exige un ADR antes de implementarse.
   - `docs/audit/` — auditoría del ecosistema web actual (qué reemplaza el portal y con qué convive).
   - `docs/design/identidad-visual.md` — tokens de marca y reglas de UI.
@@ -53,7 +54,8 @@ Idioma: documentación, UI y mensajes al usuario en **español**; código, ident
 - No aceptar una historia sin pruebas proporcionales al riesgo.
 - No declarar "terminado" si lint, typecheck, test, build y migraciones no se ejecutaron en un entorno limpio.
 - No tocar módulos fuera del alcance de la tarea "para arreglar rápido": crear una tarea para el agente dueño del dominio.
-- No exponer un endpoint sin `@RequirePermission` o `@Public`: el guard global deniega, y quitarlo no es una opción.
+- No exponer un endpoint sin `@RequirePermission`, `@Authenticated` o `@Public`: el guard global deniega, y quitarlo no es una opción. `@Authenticated` es solo para lo que concierne a la propia sesión (ADR-008).
+- No guardar contraseñas ni factores de autenticación en nuestra base: eso lo hace el proveedor OIDC, detrás de `IdentityProviderPort`.
 - No debilitar una invariante de la base de datos para que pase una prueba. Si estorba, discutir la regla en un ADR.
 - No cambiar la respuesta del webhook de pagos para que distinga motivos de fallo: sería un oráculo para el atacante. El detalle va al log y a la auditoría.
 - No leer el `organization_id` del cuerpo de una petición: sale de la sesión. Del cuerpo salen los identificadores de objetos, y siempre se verifica que pertenezcan a la empresa en sesión.
@@ -93,13 +95,14 @@ Cuándo invocar cada uno, en qué orden y con qué modelo: `docs/00-plan-de-ejec
 |---|---|---|
 | API | `apps/api` | NestJS. `/v1` afiliado, `/admin/v1` consola. Guard global de denegar por defecto |
 | Pagos y facturación | `apps/api/src/billing` | Puertos en `ports/`, proveedores solo en `adapters/`. El proveedor se elige en una línea de `billing.module.ts` |
+| Identidad y sesiones | `apps/api/src/identity` | Puerto OIDC en `ports/`, adaptador en `adapters/`. La sesión la resuelve `SessionMiddleware`; la autorización, el guard global |
 | Outbox | `apps/api/src/outbox` | Escritura transaccional y despachador con reintentos. En producción va a `apps/worker` |
 | Datos | `packages/db` | Esquema Prisma, migraciones forward-only, semilla sintética, pruebas de integridad |
 | Config compartida | `packages/config` | `tsconfig.base.json` y ESLint base |
-| Infraestructura local | `infra/docker` | PostgreSQL, Redis, almacenamiento S3 |
+| Infraestructura local | `infra/docker` | PostgreSQL, Redis, almacenamiento S3, Keycloak de desarrollo |
 | Prototipo visual | `cenisoft-repo/fedesoft` | Repositorio aparte: otra pieza, otro ciclo de vida |
 
-Las reglas de negocio configurables son filas de `Parameter`/`ParameterVersion`, nunca constantes. La regla de "al día" ya existe ahí como `afiliacion.dias_gracia` marcada provisional.
+Las reglas de negocio configurables son filas de `Parameter`/`ParameterVersion`, nunca constantes. La regla de "al día" ya existe ahí como `afiliacion.dias_gracia` marcada provisional; la duración de sesiones y la vigencia de invitaciones, como `identidad.sesion` e `identidad.invitacion`.
 
 ## Convenciones
 
