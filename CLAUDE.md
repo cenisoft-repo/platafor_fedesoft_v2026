@@ -100,6 +100,7 @@ Cuándo invocar cada uno, en qué orden y con qué modelo: `docs/00-plan-de-ejec
 | Datos | `packages/db` | Esquema Prisma, migraciones forward-only, semilla sintética, pruebas de integridad |
 | Config compartida | `packages/config` | `tsconfig.base.json` y ESLint base |
 | Infraestructura local | `infra/docker` | PostgreSQL, Redis, almacenamiento S3, Keycloak de desarrollo |
+| Imagen y despliegue del API | `apps/api/Dockerfile`, `docs/runbooks/despliegue-api.md` | Una imagen con dos órdenes (API y `migrate`); prueba de humo en `apps/api/docker/smoke.sh` |
 | Prototipo visual | `cenisoft-repo/fedesoft` | Repositorio aparte: otra pieza, otro ciclo de vida |
 
 Las reglas de negocio configurables son filas de `Parameter`/`ParameterVersion`, nunca constantes. La regla de "al día" ya existe ahí como `afiliacion.dias_gracia` marcada provisional; la duración de sesiones y la vigencia de invitaciones, como `identidad.sesion` e `identidad.invitacion`.

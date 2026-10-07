@@ -48,6 +48,10 @@ pnpm lint && pnpm typecheck && pnpm test && pnpm build
 
 Es lo mismo que corre el CI, con las migraciones sobre una base vacía. Nada se declara terminado sin que estos cinco pasen (`CLAUDE.md`, reglas no negociables).
 
+### Desplegar
+
+El API se publica como imagen de contenedor, igual para cualquier proveedor: `apps/api/Dockerfile`, con migraciones como paso previo y una prueba de humo que también corre el CI. Variables, sondas, secuencia de publicación, rollback y lo que falta decidir: [`docs/runbooks/despliegue-api.md`](docs/runbooks/despliegue-api.md).
+
 ### Estructura
 
 ```text
