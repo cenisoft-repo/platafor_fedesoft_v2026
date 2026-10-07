@@ -1,6 +1,8 @@
 # Consola de administración — operabilidad del super usuario
 
-**Versión 0.3 · 5 de octubre de 2026 · Estado: decisiones estructurales aprobadas (app separada, Opción A, BI existente, aprobación con acta); detalles pendientes en la sección 10**
+**Versión 0.4 · 7 de octubre de 2026 · Estado: decisiones estructurales aprobadas (app separada, Opción A, BI existente, aprobación con acta); detalles pendientes en la sección 10**
+
+*Cambios de 0.4 (7 oct 2026):* los nueve roles internos quedan sembrados con sus permisos, expandidos desde la matriz; se parten las filas de parámetros/catálogos/flags y de colas/importación, que al traducirse a permisos sobre-concedían; la convención de permisos pasa a `dominio:accion`, que es la que el guard acepta.
 
 *Cambios de 0.3:* `DIR` pasa a solo lectura —la aprobación de afiliación la registra `OPS` con acta (ADR-005)— con las metas anuales como única excepción declarada; se especifica la vista de Dirección (sección 6.2.1) y se adelanta su `v0` a la fase 2; el diccionario gana el cruce retención–participación y los índices compuestos publican sus pesos.
 
@@ -28,15 +30,17 @@ La consola es el *back-office* del Portal Único del Afiliado: desde ella Fedeso
 
 | Rol | Quién | Alcance típico | Alcance ABAC |
 |---|---|---|---|
-| **Super Admin** (`SA`) | Responsable técnico y suplente | Configuración global, catálogos, roles y permisos, proveedores, feature flags, usuarios internos, exportación total, auditoría, soporte controlado | Global; acciones críticas con doble control |
-| **Operaciones · Afiliación** (`OPS`) | Equipo de afiliación | Padrón: empresas, contactos, solicitudes y estados de afiliación, certificados, verificación del directorio, importación de padrón | Global sobre afiliados |
-| **Cartera · Financiera** (`FIN`) | Tesorería / contabilidad | Tarifas, cargos, pagos, conciliación, ajustes, facturas electrónicas, reportes de recaudo | Global sobre cartera |
-| **Formación y comunidades** (`TAL`) | Equipo de talento | Cursos, sesiones, cupos, inscripciones, asistencia, grabaciones, comunidades y materiales | Global sobre formación |
-| **Comunicaciones · Contenido** (`COM`) | Comunicaciones | Plantillas, campañas, anuncios, insights publicados, ofertas del directorio (moderación), sello y piezas | Global sobre contenido |
-| **Relacionamiento · Verticales y Cenisoft** (`REL`) | Cenisoft / verticales | Verticales, mesas, documentos, oportunidades y convocatorias, postulaciones | Global sobre relacionamiento |
-| **KAM** (`KAM`) | Gestores de cuenta | Cuentas estratégicas asignadas: ficha 360 de lectura, interacciones, planes de acción | Solo `organization_id` asignadas |
-| **Dirección** (`DIR`) | Presidencia Ejecutiva / dirección | Dashboards y resultados, reportes y exportación de analítica, lectura del padrón, **metas anuales** | Global de **solo lectura**, con una sola excepción declarada: las metas anuales |
-| **Auditor** (`AUD`) | Revisoría / control | Auditoría, reportes y exportaciones, sin mutación | Global de lectura |
+| **Super Admin** (`SA` · `super-admin`) | Responsable técnico y suplente | Configuración global, catálogos, roles y permisos, proveedores, feature flags, usuarios internos, exportación total, auditoría, soporte controlado | Global; acciones críticas con doble control |
+| **Operaciones · Afiliación** (`OPS` · `operaciones`) | Equipo de afiliación | Padrón: empresas, contactos, solicitudes y estados de afiliación, certificados, verificación del directorio, importación de padrón | Global sobre afiliados |
+| **Cartera · Financiera** (`FIN` · `cartera`) | Tesorería / contabilidad | Tarifas, cargos, pagos, conciliación, ajustes, facturas electrónicas, reportes de recaudo | Global sobre cartera |
+| **Formación y comunidades** (`TAL` · `formacion`) | Equipo de talento | Cursos, sesiones, cupos, inscripciones, asistencia, grabaciones, comunidades y materiales | Global sobre formación |
+| **Comunicaciones · Contenido** (`COM` · `comunicaciones`) | Comunicaciones | Plantillas, campañas, anuncios, insights publicados, ofertas del directorio (moderación), sello y piezas | Global sobre contenido |
+| **Relacionamiento · Verticales y Cenisoft** (`REL` · `relacionamiento`) | Cenisoft / verticales | Verticales, mesas, documentos, oportunidades y convocatorias, postulaciones | Global sobre relacionamiento |
+| **KAM** (`KAM` · `kam`) | Gestores de cuenta | Cuentas estratégicas asignadas: ficha 360 de lectura, interacciones, planes de acción | Solo `organization_id` asignadas |
+| **Dirección** (`DIR` · `direccion`) | Presidencia Ejecutiva / dirección | Dashboards y resultados, reportes y exportación de analítica, lectura del padrón, **metas anuales** | Global de **solo lectura**, con una sola excepción declarada: las metas anuales |
+| **Auditor** (`AUD` · `auditor`) | Revisoría / control | Auditoría, reportes y exportaciones, sin mutación | Global de lectura |
+
+Entre paréntesis, la sigla que usa este documento y la **clave del rol en la base de datos**. Los nueve están sembrados en `packages/db/prisma/seed.ts`, expandidos desde la matriz de §2.2 fila por fila —no escritos a mano—, y `apps/api/test/roles-sembrados.test.ts` comprueba que la base diga lo que dice esta tabla. Un permiso de más no haría fallar nada por sí solo: simplemente funcionaría, y de eso se encargan esas pruebas.
 
 Un usuario interno puede tener más de un rol. La aprobación de afiliación por la Junta Directiva ocurre fuera del sistema y se modela como **aprobación registrada** por `OPS` con número de acta, fecha y aprobador (decidido, sección 10); la Junta no necesita acceso a la consola.
 
@@ -58,10 +62,13 @@ Códigos: **C** crear · **R** ver · **U** editar · **S** cambiar estado · **
 | Oportunidades y postulaciones | CRUSX | — | — | — | — | CRUSX | R *(a)* | R | RX |
 | Cuentas estratégicas e interacciones | CRUSX | R | — | — | — | R | CRU *(a)* | R | RX |
 | Plantillas, campañas y comunicaciones | CRUSX | R | R | RU (propias) | CRUS | R | — | R | RX |
-| Parámetros, catálogos, reglas, flags | P✚ | R | P (tarifas y cartera ✚) | R | R | R | — | R · P *(solo metas anuales)* ✚ | RX |
+| Parámetros y reglas de negocio | P✚ | R | RP *(tarifas y cartera)* ✚ | R | R | R | — | RP *(solo metas anuales)* ✚ | RX |
+| Catálogos maestros | CRUSP | R | R | R | R | R | — | R | RX |
+| Feature flags y pilotos | P✚ | R | — | — | — | — | — | R | RX |
 | Usuarios internos y roles | CRUS✚ | — | — | — | — | — | — | R | R |
 | Proveedores e integraciones | P✚ | — | R (estado) | — | — | — | — | — | R |
-| Colas, webhooks, importación y exportación | CRUSX | Import padrón, X | X | X | — | X | — | — | RX |
+| Importación de padrón | CRUSX | CRX | — | — | — | — | — | — | RX |
+| Colas y webhooks | CRUSX | R | R (estado) | — | — | — | — | — | RX |
 | Auditoría | RX | R (propia área) | R (propia área) | R (propia área) | R (propia área) | R (propia área) | R *(a)* | R | RX |
 | Analítica y dashboards | R | R (propios) | R (propios) | R (propios) | R (propios) | R (propios) | R *(a)* | RX | RX |
 
@@ -73,7 +80,15 @@ Dirección conserva lo que necesita para decidir: ve el padrón completo y expor
 
 **Y una acción sí se pide por nombre: las metas anuales.** La decisión 7 de la sección 10 dice que `DIR` las ajusta, y fijar una meta también es mutar, así que queda declarada como la única excepción a su alcance de lectura: `P` sobre el parámetro de metas y nada más, con doble control y auditoría. Es defendible porque una meta no mueve dinero ni reparte privilegios —solo dibuja la línea contra la que se mide el resto—, y porque es suya: nadie más debería poder cambiarle el número con el que la miden.
 
-Implementación: permisos como cadenas `dominio.recurso.accion` (p. ej. `billing.charge.void`), roles como conjuntos editables por `SA` con guardas (no puede quitarse a sí mismo el rol `SA`; todo cambio de rol con motivo, doble control y notificación). Condiciones ABAC en el servidor: `organization_id` asignada, área propia, segmento.
+Implementación: permisos como cadenas de **exactamente dos segmentos**, `dominio:accion` (p. ej. `charge:transition`, `billing:refund`), roles como conjuntos editables por `SA` con guardas (no puede quitarse a sí mismo el rol `SA`; todo cambio de rol con motivo, doble control y notificación). Condiciones ABAC en el servidor: `organization_id` asignada, área propia, segmento.
+
+**Dos segmentos, no tres (corregido, 7 oct 2026).** Esta sección prometía `dominio.recurso.accion`, pero el guard del API exige dos segmentos y **rechaza las cadenas de tres a propósito**: `billing:payment:refund` se partía en dominio `billing`, y entonces cualquier `billing:*` concedía un reembolso. Era escalada de privilegio por una cadena mal formada, está cerrada en `apps/api/src/common/permissions.ts` y hay prueba que lo fija. La granularidad que daba el tercer segmento se consigue con el dominio: el recurso **es** el dominio (`charge`, `payment`, `invoice`, `certificate`…).
+
+**Por qué parámetros, catálogos y flags son tres filas (corregido, 7 oct 2026).** Estaban en una sola, con la salvedad entre paréntesis: `FIN` parametriza "(tarifas y cartera)" y `DIR` "(solo metas anuales)". Al traducir esa fila a permisos, la salvedad se perdía y las dos columnas se llevaban también los catálogos y los *feature flags*: Dirección habría podido activar un piloto, y Cartera editar cualquier catálogo del sistema. El alcance tiene que ser estructural, no una nota al margen, así que la fila se parte y cada recurso lleva su propia columna.
+
+**Las celdas acotadas son ABAC, no RBAC.** Un permiso no sabe decir "solo las cuentas asignadas" (`KAM`), "solo tarifas y cartera" (`FIN` sobre parámetros), "solo las metas anuales" (`DIR`) ni "solo su propia área" (auditoría). El rol concede la acción; **la condición la aplica el servidor en cada endpoint**. Quien implemente uno de esos endpoints sin su condición deja la celda abierta de par en par, y el permiso no lo va a avisar.
+
+**Los permisos sensibles no los hereda ningún comodín.** `billing:refund`, `billing:write-off`, `billing:manual-payment`, `certificate:revoke`, `parameter:approve`, `role:assign`, `user:impersonate` y `organization:delete` se conceden uno por uno, incluso a `SA`: un rol con `*` no los obtiene. Es la traducción en código de la lista de doble control de la sección 7.
 
 ---
 

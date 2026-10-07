@@ -9,17 +9,178 @@ import { PrismaClient, Segment } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
+/* ───────────────────── Roles internos: la matriz, en código ─────────────
+ *
+ * Esta tabla es la matriz de permisos de `docs/01-consola-administracion.md`
+ * §2.2, fila por fila y columna por columna. Se escribe así, y no como listas
+ * de permisos a mano, porque es la única forma de que una divergencia entre el
+ * documento y la base se vea de un golpe en lugar de descubrirse el día que
+ * alguien pueda algo que no debía.
+ *
+ * Códigos, los mismos del documento: C crear · R ver · U editar ·
+ * S cambiar estado · X exportar · P parametrizar · "" sin acceso.
+ *
+ * Las cadenas tienen **dos segmentos**, `dominio:accion`, que es lo que el
+ * guard del API acepta: una de tres se partiría mal y cualquier `dominio:*`
+ * concedería lo que no debe. El recurso es el dominio.
+ */
+const ACCIONES: Record<string, string> = {
+  C: "create",
+  R: "read",
+  U: "update",
+  S: "transition",
+  X: "export",
+  P: "configure",
+};
+
+/** Los ocho roles que se enumeran. `SA` va aparte: su fila es "todo". */
+type RolInterno = "OPS" | "FIN" | "TAL" | "COM" | "REL" | "KAM" | "DIR" | "AUD";
+
+interface FilaDeMatriz {
+  recurso: string;
+  dominios: string[];
+  celdas: Record<RolInterno, string>;
+}
+
+const MATRIZ: FilaDeMatriz[] = [
+  { recurso: "Empresas y contactos", dominios: ["organization", "contact"],
+    celdas: { OPS: "CRUSX", FIN: "R", TAL: "R", COM: "R", REL: "R", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Solicitudes y estados de afiliación", dominios: ["affiliation"],
+    celdas: { OPS: "CRUS", FIN: "R", TAL: "", COM: "", REL: "", KAM: "R", DIR: "RX", AUD: "RX" } },
+  { recurso: "Tarifas, cargos, pagos y conciliación", dominios: ["charge", "payment"],
+    celdas: { OPS: "R", FIN: "CRUSX", TAL: "", COM: "", REL: "", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Facturas electrónicas", dominios: ["invoice"],
+    celdas: { OPS: "R", FIN: "RSX", TAL: "", COM: "", REL: "", KAM: "", DIR: "R", AUD: "RX" } },
+  { recurso: "Certificados y sello", dominios: ["certificate"],
+    celdas: { OPS: "CRS", FIN: "R", TAL: "", COM: "R", REL: "", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Formación: cursos, sesiones, inscripciones", dominios: ["training"],
+    celdas: { OPS: "R", FIN: "", TAL: "CRUSX", COM: "R", REL: "", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Comunidades y materiales", dominios: ["community"],
+    celdas: { OPS: "R", FIN: "", TAL: "CRUSX", COM: "RU", REL: "", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Directorio, ofertas e insights", dominios: ["directory"],
+    celdas: { OPS: "RU", FIN: "", TAL: "", COM: "CRUS", REL: "", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Verticales, mesas y documentos", dominios: ["vertical"],
+    celdas: { OPS: "", FIN: "", TAL: "", COM: "R", REL: "CRUSX", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Oportunidades y postulaciones", dominios: ["opportunity"],
+    celdas: { OPS: "", FIN: "", TAL: "", COM: "", REL: "CRUSX", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Cuentas estratégicas e interacciones", dominios: ["account", "interaction"],
+    celdas: { OPS: "R", FIN: "", TAL: "", COM: "", REL: "R", KAM: "CRU", DIR: "R", AUD: "RX" } },
+  { recurso: "Plantillas, campañas y comunicaciones", dominios: ["template", "campaign"],
+    celdas: { OPS: "R", FIN: "R", TAL: "RU", COM: "CRUS", REL: "R", KAM: "", DIR: "R", AUD: "RX" } },
+  /* Tres filas y no una: con los tres recursos juntos, la salvedad de la
+     matriz —`FIN` solo tarifas, `DIR` solo metas— se perdía al expandir, y
+     Dirección terminaba pudiendo activar un feature flag. */
+  { recurso: "Parámetros y reglas de negocio", dominios: ["parameter"],
+    celdas: { OPS: "R", FIN: "RP", TAL: "R", COM: "R", REL: "R", KAM: "", DIR: "RP", AUD: "RX" } },
+  { recurso: "Catálogos maestros", dominios: ["catalog"],
+    celdas: { OPS: "R", FIN: "R", TAL: "R", COM: "R", REL: "R", KAM: "", DIR: "R", AUD: "RX" } },
+  { recurso: "Feature flags y pilotos", dominios: ["flag"],
+    celdas: { OPS: "R", FIN: "", TAL: "", COM: "", REL: "", KAM: "", DIR: "R", AUD: "RX" } },
+  { recurso: "Usuarios internos y roles", dominios: ["user", "role"],
+    celdas: { OPS: "", FIN: "", TAL: "", COM: "", REL: "", KAM: "", DIR: "R", AUD: "R" } },
+  { recurso: "Proveedores e integraciones", dominios: ["provider"],
+    celdas: { OPS: "", FIN: "R", TAL: "", COM: "", REL: "", KAM: "", DIR: "", AUD: "R" } },
+  { recurso: "Importación de padrón", dominios: ["import"],
+    celdas: { OPS: "CRX", FIN: "", TAL: "", COM: "", REL: "", KAM: "", DIR: "", AUD: "RX" } },
+  { recurso: "Colas y webhooks", dominios: ["queue", "webhook"],
+    celdas: { OPS: "R", FIN: "R", TAL: "", COM: "", REL: "", KAM: "", DIR: "", AUD: "RX" } },
+  { recurso: "Auditoría", dominios: ["audit"],
+    celdas: { OPS: "R", FIN: "R", TAL: "R", COM: "R", REL: "R", KAM: "R", DIR: "R", AUD: "RX" } },
+  { recurso: "Analítica y dashboards", dominios: ["analytics"],
+    celdas: { OPS: "R", FIN: "R", TAL: "R", COM: "R", REL: "R", KAM: "R", DIR: "RX", AUD: "RX" } },
+];
+
+/**
+ * Lo que la matriz no puede decir con letras.
+ *
+ * Los permisos sensibles no los hereda ningún comodín —ni `*`, ni `dominio:*`—,
+ * así que se conceden uno por uno y con el motivo escrito. Incluido a `SA`:
+ * tener `*` no alcanza para reembolsar ni para repartir roles.
+ */
+const SENSIBLES_POR_ROL: Record<string, string[]> = {
+  /* Responsable técnico: todo, pero declarado. */
+  SA: [
+    "billing:refund",
+    "billing:write-off",
+    "billing:manual-payment",
+    "certificate:revoke",
+    "parameter:approve",
+    "role:assign",
+    "user:impersonate",
+    "organization:delete",
+  ],
+  /* Revoca un certificado cuando la empresa deja de estar al día (gestión 5.5). */
+  OPS: ["certificate:revoke"],
+  /* Anulaciones, castigos de cartera y el pago por transferencia que sigue
+     existiendo; y aprobar tarifas y reglas de cartera, acotado por ABAC a esos
+     parámetros y a ningún otro. */
+  FIN: ["billing:refund", "billing:write-off", "billing:manual-payment", "parameter:approve"],
+  /* Única excepción a su alcance de solo lectura: sus propias metas anuales,
+     acotado por ABAC a ese parámetro (docs/01, §2.2). */
+  DIR: ["parameter:approve"],
+};
+
+/** Acciones transversales que no son CRUD y por eso no caben en una celda. */
+const EXTRAS_POR_ROL: Record<string, string[]> = {
+  /* La conciliación diaria contra la pasarela es suya (gestión 5.3). */
+  FIN: ["billing:reconcile"],
+};
+
+const ROLES_INTERNOS: { sigla: RolInterno | "SA"; key: string; name: string }[] = [
+  { sigla: "SA", key: "super-admin", name: "Super Admin Fedesoft" },
+  { sigla: "OPS", key: "operaciones", name: "Operaciones · Afiliación" },
+  { sigla: "FIN", key: "cartera", name: "Cartera · Financiera" },
+  { sigla: "TAL", key: "formacion", name: "Formación y comunidades" },
+  { sigla: "COM", key: "comunicaciones", name: "Comunicaciones · Contenido" },
+  { sigla: "REL", key: "relacionamiento", name: "Relacionamiento · Verticales y Cenisoft" },
+  { sigla: "KAM", key: "kam", name: "Gestor de cuenta (KAM)" },
+  { sigla: "DIR", key: "direccion", name: "Dirección · Presidencia Ejecutiva" },
+  { sigla: "AUD", key: "auditor", name: "Auditor" },
+];
+
+/** Expande una columna de la matriz a su lista de permisos. */
+function permisosDe(sigla: RolInterno | "SA"): string[] {
+  const permisos = new Set<string>();
+
+  if (sigla === "SA") {
+    /* Su fila en el documento es "todo", y el comodín es cómo se dice eso sin
+       tener que volver aquí cada vez que aparece un recurso nuevo. */
+    permisos.add("*");
+  } else {
+    for (const fila of MATRIZ) {
+      for (const codigo of fila.celdas[sigla]) {
+        const accion = ACCIONES[codigo];
+        if (!accion) throw new Error(`Código desconocido '${codigo}' en '${fila.recurso}'.`);
+        for (const dominio of fila.dominios) permisos.add(`${dominio}:${accion}`);
+      }
+    }
+  }
+
+  for (const permiso of EXTRAS_POR_ROL[sigla] ?? []) permisos.add(permiso);
+  for (const permiso of SENSIBLES_POR_ROL[sigla] ?? []) permisos.add(permiso);
+  return [...permisos].sort();
+}
+
+/* Los roles del afiliado no salen de la matriz de la consola: esa tabla
+   describe quién opera por dentro. Aquí la experiencia la define el rol del
+   contacto en su empresa. */
+const ROLES_EXTERNOS = [
+  { key: "gerente", name: "Gerente afiliado", permissions: ["organization:read", "organization:update", "billing:*", "certificate:read", "directory:*", "opportunity:*"] },
+  { key: "talento", name: "Talento humano afiliado", permissions: ["training:*", "community:read", "organization:read"] },
+  { key: "contacto", name: "Contacto afiliado", permissions: ["organization:read", "training:read"] },
+];
+
 /* `mfaRequired` sigue a `internal`: quien opera por dentro entra con segundo
    factor (ADR-008). Es una columna y no una constante para que una excepción
    futura sea una fila, no un despliegue. */
 const ROLES = [
-  { key: "super-admin", name: "Super Admin Fedesoft", internal: true, permissions: ["*"] },
-  { key: "operaciones", name: "Operaciones Fedesoft", internal: true, permissions: ["affiliation:*", "billing:read", "billing:reconcile", "organization:*", "training:*"] },
-  { key: "kam", name: "Gestor de cuenta", internal: true, permissions: ["organization:read", "interaction:*", "opportunity:read"] },
-  { key: "auditor", name: "Auditor", internal: true, permissions: ["*:read"] },
-  { key: "gerente", name: "Gerente afiliado", internal: false, permissions: ["organization:read", "organization:update", "billing:*", "certificate:read", "directory:*", "opportunity:*"] },
-  { key: "talento", name: "Talento humano afiliado", internal: false, permissions: ["training:*", "community:read", "organization:read"] },
-  { key: "contacto", name: "Contacto afiliado", internal: false, permissions: ["organization:read", "training:read"] },
+  ...ROLES_INTERNOS.map((rol) => ({
+    key: rol.key,
+    name: rol.name,
+    internal: true,
+    permissions: permisosDe(rol.sigla),
+  })),
+  ...ROLES_EXTERNOS.map((rol) => ({ ...rol, internal: false })),
 ];
 
 /** Tarifa vigente: sale de un parámetro versionado, no de una constante. */
@@ -137,7 +298,8 @@ async function main() {
   await sembrarAccesos(empresa.id);
 
   process.stdout.write(
-    `Semilla lista: ${ROLES.length} roles, 2 parámetros versionados, 1 empresa con afiliación y cargo, 3 usuarios con acceso.\n`,
+    `Semilla lista: ${ROLES_INTERNOS.length} roles internos y ${ROLES_EXTERNOS.length} del afiliado, ` +
+      `2 parámetros versionados, 1 empresa con afiliación y cargo, 3 usuarios con acceso.\n`,
   );
 }
 
