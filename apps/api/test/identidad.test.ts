@@ -57,7 +57,9 @@ const internos = new InternalUsersUseCase(prisma as never, audit, sessions);
 const URLS = { callbackUrl: "http://api.test/v1/auth/callback", appUrl: "http://portal.test" };
 const CTX = { correlationId: "prueba-identidad", ip: "127.0.0.1" };
 const GERENTE_PERMS = ["organization:read", "billing:*", "user:read", "user:invite", "user:manage"];
-const SA_PERMS = ["*", "role:assign"];
+/* Igual que la semilla (ADR-009): los permisos sensibles van literales, y sin ellos el
+   techo de privilegios le impediría a un Super Admin otorgar el rol Auditor. */
+const SA_PERMS = ["*", "role:assign", "session:inspect", "user:read-affiliates"];
 
 const sufijo = () => randomUUID().slice(0, 8);
 
@@ -206,7 +208,7 @@ test("la consola exige rol interno y segundo factor; el portal y la consola no c
   assert.deepEqual(vistaConsola.internalRoles, [{ key: "operaciones", name: "Operaciones · Afiliación" }]);
   assert.deepEqual(vistaConsola.organizations, []);
   assert.equal(s?.actor.organizationId, null);
-  assert.ok(s?.actor.permissions.includes("affiliation:*"));
+  assert.ok(s?.actor.permissions.includes("affiliation:change-status"));
   assert.equal(await sessions.authenticate(token, "PORTAL"), null);
 
   const org = await empresa();

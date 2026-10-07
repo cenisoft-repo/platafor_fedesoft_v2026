@@ -17,11 +17,12 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { promisify } from "node:util";
 import { METHOD_METADATA } from "@nestjs/common/constants";
-import { RequestMethod } from "@nestjs/common";
+import { RequestMethod, UnprocessableEntityException, NotFoundException } from "@nestjs/common";
 import { PrismaClient } from "@fedesoft/db";
 import { AuditService } from "../src/common/audit.service.js";
 import { PERMISSION_KEY, SENSITIVE_PERMISSIONS, grants } from "../src/common/permissions.js";
 import { AdminUsersController } from "../src/identity/admin-users.controller.js";
+import { InternalUsersUseCase } from "../src/identity/domain/internal-users.use-case.js";
 import { SessionService } from "../src/identity/domain/session.service.js";
 import { randomToken, sha256Hex } from "../src/identity/domain/tokens.js";
 
@@ -53,15 +54,17 @@ type ModuloId = (typeof MODULOS)[number]["id"];
 type Nivel = "L" | "E" | "-";
 
 /* Una columna por módulo, en el orden de MODULOS:
-                      afil solic cart form cont rela cuen resu usua audi */
+                      afil solic cart form cont rela cuen resu usua audi
+   Auditoría: solo SA, DIR y AUD. Los roles de área y el KAM la recuperan cuando el
+   servidor filtre por área (ADR-009, «Qué se deja fuera», b). */
 const ORACULO: Record<string, readonly Nivel[]> = {
   "super-admin":    ["E", "E", "E", "E", "E", "E", "E", "E", "E", "E"],
-  operaciones:      ["E", "E", "L", "L", "L", "-", "L", "L", "-", "L"],
-  cartera:          ["L", "L", "E", "-", "L", "-", "-", "L", "-", "L"],
-  formacion:        ["L", "-", "-", "E", "L", "-", "-", "L", "-", "L"],
-  comunicaciones:   ["L", "-", "-", "L", "E", "L", "-", "L", "-", "L"],
-  relacionamiento:  ["L", "-", "-", "-", "L", "E", "L", "L", "-", "L"],
-  kam:              ["L", "L", "L", "L", "-", "L", "E", "L", "-", "L"],
+  operaciones:      ["E", "E", "L", "L", "L", "-", "L", "L", "-", "-"],
+  cartera:          ["L", "L", "E", "-", "L", "-", "-", "L", "-", "-"],
+  formacion:        ["L", "-", "-", "E", "L", "-", "-", "L", "-", "-"],
+  comunicaciones:   ["L", "-", "-", "L", "E", "L", "-", "L", "-", "-"],
+  relacionamiento:  ["L", "-", "-", "-", "L", "E", "L", "L", "-", "-"],
+  kam:              ["L", "L", "L", "L", "-", "L", "E", "L", "-", "-"],
   direccion:        ["L", "L", "L", "L", "L", "L", "L", "E", "L", "L"],
   auditor:          ["L", "L", "L", "L", "L", "L", "L", "E", "L", "E"],
 };
@@ -128,13 +131,87 @@ test("el oráculo cubre los diez módulos para cada uno de los nueve roles", () 
 
 /* ───────────────────────── Permisos sensibles y usuarios ───────────────────────── */
 
-test("ningún rol interno recibe un permiso sensible, salvo role:assign del Super Admin", async () => {
+/** Quién lleva cada permiso sensible, de forma literal. Escrito a mano. */
+const SENSIBLES_POR_ROL: Record<string, readonly string[]> = {
+  "super-admin": ["role:assign", "session:inspect", "user:read-affiliates"],
+  auditor: ["session:inspect", "user:read-affiliates"],
+};
+
+test("los permisos sensibles los lleva literal solo quien el ADR-009 indica, y ningún comodín los concede", async () => {
+  /* Los tres que añade el ADR-009 están declarados sensibles. */
+  for (const p of ["session:inspect", "user:read-affiliates", "affiliation:approve"]) {
+    assert.ok(SENSITIVE_PERMISSIONS.has(p), `${p} debe ser sensible`);
+  }
   for (const r of await rolesInternos()) {
+    const permitidos = SENSIBLES_POR_ROL[r.key] ?? [];
     for (const sensible of SENSITIVE_PERMISSIONS) {
-      const esperado = r.key === "super-admin" && sensible === "role:assign";
+      const esperado = permitidos.includes(sensible);
       assert.equal(grants(r.permissions, sensible), esperado, `${r.key} · ${sensible}`);
       assert.equal(r.permissions.includes(sensible), esperado, `${r.key} lista ${sensible} de forma literal`);
     }
+  }
+});
+
+test("en roles internos, comodín de dominio solo donde la matriz da CRUSX completo", async () => {
+  /* Oráculo a mano: OPS tiene Empresas CRUSX; TAL, Formación y Comunidades CRUSX; REL,
+     Oportunidades y Verticales CRUSX. Donde falta una letra (OPS Solicitudes sin X,
+     COM Contenido y Directorio sin X, KAM Cuentas sin S ni X) se listan las acciones. */
+  const COMODINES: Record<string, readonly string[]> = {
+    "super-admin": ["*"],
+    operaciones: ["organization:*"],
+    cartera: [],
+    formacion: ["training:*", "community:*"],
+    comunicaciones: [],
+    relacionamiento: ["opportunity:*", "vertical:*"],
+    kam: [],
+    direccion: ["*:read"],
+    auditor: ["*:read"],
+  };
+  for (const r of await rolesInternos()) {
+    const reales = r.permissions.filter((p) => p.includes("*")).sort();
+    assert.deepEqual(reales, [...(COMODINES[r.key] ?? [])].sort(), `comodines de ${r.key}`);
+  }
+});
+
+test("las funciones que la matriz separa no se reparten por comodín", async () => {
+  const roles = new Map((await rolesInternos()).map((r) => [r.key, r.permissions]));
+  const de = (clave: string) => {
+    const p = roles.get(clave);
+    assert.ok(p, `rol ${clave}`);
+    return p;
+  };
+  /* Operaciones registra solicitudes pero no las aprueba en 2.º nivel ni las exporta. */
+  for (const accion of ["read", "create", "update", "change-status"]) {
+    assert.equal(grants(de("operaciones"), `affiliation:${accion}`), true, `operaciones · affiliation:${accion}`);
+  }
+  for (const accion of ["approve", "export", "delete"]) {
+    assert.equal(grants(de("operaciones"), `affiliation:${accion}`), false, `operaciones · affiliation:${accion}`);
+  }
+  /* Verificar perfiles del directorio es de Operaciones, no de Comunicaciones. */
+  assert.equal(grants(de("operaciones"), "directory:verify"), true);
+  assert.equal(grants(de("comunicaciones"), "directory:verify"), false);
+  assert.equal(grants(de("comunicaciones"), "directory:update"), true);
+  assert.equal(grants(de("comunicaciones"), "content:export"), false);
+  /* El KAM registra interacciones, no cambia su estado ni las exporta. */
+  for (const accion of ["read", "create", "update"]) {
+    assert.equal(grants(de("kam"), `interaction:${accion}`), true, `kam · interaction:${accion}`);
+  }
+  for (const accion of ["change-status", "export", "delete"]) {
+    assert.equal(grants(de("kam"), `interaction:${accion}`), false, `kam · interaction:${accion}`);
+  }
+  /* La aprobación de 2.º nivel no la tiene nadie todavía, ni por `*`. */
+  for (const [clave, permisos] of roles) {
+    assert.equal(grants(permisos, "affiliation:approve"), false, `${clave} · affiliation:approve`);
+  }
+});
+
+test("audit:read solo lo tienen Super Admin, Dirección y Auditor", async () => {
+  const quienes = (await rolesInternos()).filter((r) => grants(r.permissions, "audit:read")).map((r) => r.key).sort();
+  assert.deepEqual(quienes, ["auditor", "direccion", "super-admin"]);
+  /* Y ninguno de los demás lo lista de forma literal: no hay forma de heredarlo. */
+  for (const r of await rolesInternos()) {
+    if (["auditor", "direccion", "super-admin"].includes(r.key)) continue;
+    assert.equal(r.permissions.includes("audit:read"), false, r.key);
   }
 });
 
@@ -147,7 +224,9 @@ test("billing:pay es el pago del afiliado: ningún rol interno de área lo alcan
   }
 });
 
-test("en /admin/v1/users solo el Super Admin muta; Dirección y Auditor solo leen", async () => {
+/* Que Dirección y Auditor lean por `user:read` no dice QUÉ usuarios ven: eso lo acota el caso
+   de uso con `user:read-affiliates` y `session:inspect` (pruebas de más abajo). */
+test("en /admin/v1/users solo el Super Admin muta; Dirección y Auditor tienen user:read", async () => {
   const roles = await rolesInternos();
   const proto = AdminUsersController.prototype as unknown as Record<string, unknown>;
   const handlers = Object.getOwnPropertyNames(proto).filter(
@@ -250,6 +329,186 @@ test("una persona con dos roles internos recibe la unión de sus permisos y ambo
   assert.equal(por("afiliados"), "L");
 });
 
+/* ───────────── Quién ve a quién en /admin/v1/users (ADR-009, decisión 5) ───────────── */
+
+const internos = new InternalUsersUseCase(prisma as never, new AuditService(), sessions);
+const CTX = { correlationId: "prueba-roles-internos", ip: "127.0.0.1" };
+
+/** Lo que haría el servidor con la lista de permisos del rol sembrado. El `userId` solo debe existir. */
+async function actorDeRol(clave: string) {
+  const rol = await prisma.role.findUniqueOrThrow({ where: { key: clave } });
+  const persona = await prisma.user.create({
+    data: { email: `actor.${sufijo()}@roles-internos.test`, authSubject: `sub-${randomUUID()}`, status: "ACTIVO" },
+  });
+  return { userId: persona.id, permissions: rol.permissions };
+}
+
+/** Una persona afiliada con sesión de portal y una persona del equipo con sesión de consola, ambas con IP y agente. */
+async function escenarioDeUsuarios() {
+  const s = sufijo();
+  const nit = String(Math.floor(Math.random() * 900000) + 100000);
+  const org = await prisma.organization.create({
+    data: { nit: `9028${nit}`, nitDv: "1", legalName: `Visibilidad ${nit} S.A.S.`, segment: "MIPYME", status: "ACTIVA" },
+  });
+  const gerente = await prisma.role.findUniqueOrThrow({ where: { key: "gerente" } });
+  const afiliado = await prisma.user.create({
+    data: { email: `afiliado.${s}@roles-internos.test`, authSubject: `sub-${randomUUID()}`, status: "ACTIVO" },
+  });
+  await prisma.organizationUser.create({ data: { organizationId: org.id, userId: afiliado.id, roleId: gerente.id } });
+  await prisma.session.create({
+    data: {
+      userId: afiliado.id,
+      organizationId: org.id,
+      channel: "PORTAL",
+      tokenHash: sha256Hex(randomToken()),
+      mfa: false,
+      idleTimeoutSec: 3600,
+      expiresAt: new Date(Date.now() + 3_600_000),
+      ipAddress: "203.0.113.7",
+      userAgent: "ua-afiliado-prueba",
+    },
+  });
+
+  const formacion = await prisma.role.findUniqueOrThrow({ where: { key: "formacion" } });
+  const interno = await prisma.user.create({
+    data: { email: `interno.${s}@roles-internos.test`, authSubject: `sub-${randomUUID()}`, status: "ACTIVO" },
+  });
+  await prisma.userInternalRole.create({ data: { userId: interno.id, roleId: formacion.id } });
+  await prisma.session.create({
+    data: {
+      userId: interno.id,
+      channel: "CONSOLA",
+      tokenHash: sha256Hex(randomToken()),
+      mfa: true,
+      idleTimeoutSec: 1800,
+      expiresAt: new Date(Date.now() + 3_600_000),
+      ipAddress: "198.51.100.9",
+      userAgent: "ua-interno-prueba",
+    },
+  });
+  return { s, afiliado, interno };
+}
+
+test("Dirección ve a las personas del equipo interno, no a los afiliados, y no ve IP ni agente", async () => {
+  const { s, afiliado, interno } = await escenarioDeUsuarios();
+  const dir = await actorDeRol("direccion");
+
+  const busqueda = await internos.search(dir, s, 25, 0);
+  assert.deepEqual(busqueda.items.map((u) => u.email), [interno.email]);
+  assert.equal(busqueda.total, 1);
+  assert.equal(busqueda.items[0]?.organizations, null);
+  assert.deepEqual(busqueda.visibility, { affiliates: false });
+
+  /* Mismo 404 que un id inexistente: no se confirma que la persona afiliada exista. */
+  const inexistente = await internos.detail(dir, randomUUID()).catch((e: unknown) => e);
+  const delAfiliado = await internos.detail(dir, afiliado.id).catch((e: unknown) => e);
+  assert.ok(delAfiliado instanceof NotFoundException);
+  assert.equal((delAfiliado as Error).message, (inexistente as Error).message);
+
+  const ficha = await internos.detail(dir, interno.id);
+  assert.equal(ficha.email, interno.email);
+  assert.deepEqual(ficha.visibility, { affiliates: false, sessionDetails: false });
+  assert.equal(ficha.organizationUsers, null);
+  assert.equal(ficha.sessions.length, 1);
+  assert.equal(ficha.sessions[0]?.channel, "CONSOLA");
+  assert.equal(ficha.sessions[0]?.ipAddress, null);
+  assert.equal(ficha.sessions[0]?.userAgent, null);
+  assert.ok(!JSON.stringify(ficha).includes("198.51.100.9"), "la IP no debe salir en ninguna parte de la ficha");
+  assert.ok(!JSON.stringify(ficha).includes("ua-interno-prueba"));
+});
+
+test("El Auditor ve a los afiliados y el detalle de sus sesiones", async () => {
+  const { s, afiliado, interno } = await escenarioDeUsuarios();
+  const aud = await actorDeRol("auditor");
+
+  const busqueda = await internos.search(aud, s, 25, 0);
+  assert.deepEqual(busqueda.items.map((u) => u.email).sort(), [afiliado.email, interno.email].sort());
+  assert.equal(busqueda.total, 2);
+  assert.equal(busqueda.items.find((u) => u.id === afiliado.id)?.organizations, 1);
+  assert.deepEqual(busqueda.visibility, { affiliates: true });
+
+  const ficha = await internos.detail(aud, afiliado.id);
+  assert.deepEqual(ficha.visibility, { affiliates: true, sessionDetails: true });
+  assert.equal(ficha.organizationUsers?.length, 1);
+  assert.equal(ficha.organizationUsers?.[0]?.role.key, "gerente");
+  assert.equal(ficha.sessions[0]?.ipAddress, "203.0.113.7");
+  assert.equal(ficha.sessions[0]?.userAgent, "ua-afiliado-prueba");
+
+  const delInterno = await internos.detail(aud, interno.id);
+  assert.equal(delInterno.sessions[0]?.ipAddress, "198.51.100.9");
+});
+
+test("El Super Admin ve lo mismo que el Auditor: afiliados, empresas y sesiones completas", async () => {
+  const { s, afiliado, interno } = await escenarioDeUsuarios();
+  const sa = await actorDeRol("super-admin");
+  const aud = await actorDeRol("auditor");
+
+  assert.deepEqual(await internos.search(sa, s, 25, 0), await internos.search(aud, s, 25, 0));
+  for (const id of [afiliado.id, interno.id]) {
+    assert.deepEqual(await internos.detail(sa, id), await internos.detail(aud, id));
+  }
+  const ficha = await internos.detail(sa, afiliado.id);
+  assert.equal(ficha.organizationUsers?.[0]?.organization.nit.startsWith("9028"), true);
+  assert.equal(ficha.sessions[0]?.ipAddress, "203.0.113.7");
+});
+
+test("sin user:read-affiliates ni session:inspect, ningún otro rol interno ve afiliados ni IP", async () => {
+  /* Quien llegara a tener user:read por otra vía (rol futuro) tampoco los ve:
+     el comodín `*:read` no alcanza a ninguno de los dos permisos literales. */
+  const { s, afiliado } = await escenarioDeUsuarios();
+  const soloLectura = { userId: (await actorDeRol("direccion")).userId, permissions: ["user:read", "*:read"] };
+  const busqueda = await internos.search(soloLectura, s, 25, 0);
+  assert.equal(busqueda.items.some((u) => u.id === afiliado.id), false);
+  await assert.rejects(internos.detail(soloLectura, afiliado.id), NotFoundException);
+});
+
+/* ───────────── El rol kam no se asigna hasta que exista el ABAC por cuentas ───────────── */
+
+test("asignar el rol kam por la consola se rechaza con motivo; lo demás sigue funcionando", async () => {
+  const actor = await actorDeRol("super-admin");
+  const destino = await prisma.user.create({
+    data: { email: `kam.${sufijo()}@roles-internos.test`, authSubject: `sub-${randomUUID()}`, status: "ACTIVO" },
+  });
+
+  await assert.rejects(
+    internos.grantRole(actor, destino.id, "kam", CTX),
+    (e: unknown) => e instanceof UnprocessableEntityException && /cuentas asignadas/.test(e.message) && /RA-ACC-004/.test(e.message),
+  );
+  assert.equal(await prisma.userInternalRole.count({ where: { userId: destino.id } }), 0);
+
+  /* El alta de un usuario nuevo con kam tampoco: y no deja el usuario a medias. */
+  const correo = `alta.${sufijo()}@roles-internos.test`;
+  await assert.rejects(
+    internos.provision(actor, { email: correo, name: "Alta Kam", roleKey: "kam" }, CTX),
+    UnprocessableEntityException,
+  );
+  assert.equal(await prisma.user.count({ where: { email: correo } }), 0);
+
+  /* El rechazo es solo de kam: otro rol interno se asigna con normalidad (control). */
+  await internos.grantRole(actor, destino.id, "formacion", CTX);
+  assert.equal(await prisma.userInternalRole.count({ where: { userId: destino.id } }), 1);
+});
+
+test("quitar el rol kam a quien ya lo tiene (semilla de desarrollo) no se bloquea", async () => {
+  const actor = await actorDeRol("super-admin");
+  const kam = await prisma.role.findUniqueOrThrow({ where: { key: "kam" } });
+  const persona = await prisma.user.create({
+    data: { email: `kamviejo.${sufijo()}@roles-internos.test`, authSubject: `sub-${randomUUID()}`, status: "ACTIVO" },
+  });
+  await prisma.userInternalRole.create({ data: { userId: persona.id, roleId: kam.id } });
+  await internos.revokeRole(actor, persona.id, "kam", CTX);
+  assert.equal(await prisma.userInternalRole.count({ where: { userId: persona.id } }), 0);
+});
+
+test("el Super Admin sembrado puede otorgar el rol Auditor: lleva literales los permisos sensibles que este trae", async () => {
+  const actor = await actorDeRol("super-admin");
+  const destino = await prisma.user.create({
+    data: { email: `aud.${sufijo()}@roles-internos.test`, authSubject: `sub-${randomUUID()}`, status: "ACTIVO" },
+  });
+  await internos.grantRole(actor, destino.id, "auditor", CTX);
+  assert.equal(await prisma.userInternalRole.count({ where: { userId: destino.id } }), 1);
+});
+
 /* ───────────────────────────── La semilla ───────────────────────────── */
 
 const DB_DIR = path.resolve(__dirname, "../../../packages/db");
@@ -323,6 +582,29 @@ test("cada usuario de desarrollo interno tiene el rol que su correo dice", async
   });
 });
 
-test("la semilla se niega a correr con NODE_ENV=production", async () => {
+test("la semilla se niega a correr con NODE_ENV=production, también con el permiso explícito", async () => {
   await assert.rejects(sembrar({ NODE_ENV: "production" }), /NODE_ENV=production/);
+  await assert.rejects(sembrar({ NODE_ENV: "production", ALLOW_SYNTHETIC_SEED: "1" }), /NODE_ENV=production/);
+});
+
+test("la semilla se niega a correr con NODE_ENV=staging", async () => {
+  await assert.rejects(sembrar({ NODE_ENV: "staging" }), /NODE_ENV=staging/);
+});
+
+test("la semilla se niega con una base remota si no se autoriza de forma explícita, y no revela la URL", async () => {
+  const remota = "postgresql://usuario:clave-secreta@db.ejemplo.test:5432/fedesoft?schema=public";
+  await assert.rejects(sembrar({ DATABASE_URL: remota }), (e: unknown) => {
+    const err = e as { stderr?: string; message: string };
+    const texto = `${err.stderr ?? ""}${err.message}`;
+    assert.match(texto, /db\.ejemplo\.test/);
+    assert.match(texto, /ALLOW_SYNTHETIC_SEED/);
+    assert.ok(!texto.includes("clave-secreta"), "la salida no debe incluir credenciales");
+    return true;
+  });
+});
+
+test("con ALLOW_SYNTHETIC_SEED=1 la semilla corre en un entorno que no es producción", async () => {
+  /* Contra la base local de la prueba: se comprueba que el permiso abre el paso sin tocar una remota. */
+  const salida = await sembrar({ NODE_ENV: "staging", ALLOW_SYNTHETIC_SEED: "1" });
+  assert.match(salida.stdout, /Semilla lista/);
 });

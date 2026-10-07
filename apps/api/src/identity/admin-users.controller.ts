@@ -58,13 +58,15 @@ export class AdminUsersController {
 
   @Get()
   @RequirePermission("user:read")
-  @ApiOperation({ summary: "Busca usuarios por correo." })
+  @ApiOperation({ summary: "Busca usuarios por correo. Las personas afiliadas solo con user:read-affiliates." })
   search(
     @Query("q") q: string | undefined,
     @Query("take", new DefaultValuePipe(25), ParseIntPipe) take: number,
     @Query("skip", new DefaultValuePipe(0), ParseIntPipe) skip: number,
+    @Req() req: AuthenticatedRequest,
   ) {
     return this.users.search(
+      consola(req),
       typeof q === "string" ? q.slice(0, 320) : undefined,
       Math.min(Math.max(take, 1), 100),
       Math.max(skip, 0),
@@ -80,9 +82,12 @@ export class AdminUsersController {
 
   @Get(":userId")
   @RequirePermission("user:read")
-  @ApiOperation({ summary: "Ficha del usuario: empresas, roles internos y sesiones activas." })
-  detail(@Param("userId", new ParseUUIDPipe()) userId: string) {
-    return this.users.detail(userId);
+  @ApiOperation({
+    summary:
+      "Ficha del usuario: roles internos, sesiones activas y, con user:read-affiliates, sus empresas. IP y agente de las sesiones solo con session:inspect.",
+  })
+  detail(@Param("userId", new ParseUUIDPipe()) userId: string, @Req() req: AuthenticatedRequest) {
+    return this.users.detail(consola(req), userId);
   }
 
   @Post()

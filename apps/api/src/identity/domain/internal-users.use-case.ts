@@ -1,8 +1,15 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Injectable,
+  NotFoundException,
+  UnprocessableEntityException,
+} from "@nestjs/common";
 import { Prisma } from "@fedesoft/db";
 import { PrismaService } from "../../prisma/prisma.service.js";
 import { AuditService } from "../../common/audit.service.js";
-import { canDelegate } from "../../common/permissions.js";
+import { canDelegate, grants } from "../../common/permissions.js";
 import { SessionService, type RequestContext } from "./session.service.js";
 
 /**
@@ -12,6 +19,29 @@ import { SessionService, type RequestContext } from "./session.service.js";
 export const SUPER_ADMIN_ROLE = "super-admin";
 /** RA-ACC-008: siempre existen al menos dos cuentas Super Admin. */
 export const MIN_SUPER_ADMINS = 2;
+
+/**
+ * Quién ve qué en /admin/v1/users (ADR-009, decisión 5). `user:read` basta para
+ * buscar y ver usuarios del equipo interno; las personas afiliadas y el detalle
+ * de sus sesiones piden un permiso literal propio, porque son datos personales
+ * de terceros y `*:read` (Dirección, Auditor) los abriría sin quererlo.
+ */
+export const PERMISO_VER_AFILIADOS = "user:read-affiliates";
+export const PERMISO_INSPECCIONAR_SESIONES = "session:inspect";
+
+/**
+ * Roles internos que aún no pueden asignarse por la consola porque su alcance
+ * depende de una restricción que el servidor todavía no aplica. Sin ella, el
+ * rol daría acceso a todo lo que su lista alcanza y no solo a lo asignado
+ * (ADR-009, «Qué se deja fuera», b). La semilla de desarrollo sí lo crea.
+ * Se levanta cuando exista el modelo de cuentas asignadas (RA-ACC-004).
+ */
+export const ROLES_SIN_ALCANCE_APLICADO: ReadonlyMap<string, string> = new Map([
+  [
+    "kam",
+    "El rol Gestor de cuenta aún no puede asignarse: su alcance por cuentas asignadas no está implementado y le daría acceso a todas las empresas (RA-ACC-004, ADR-009).",
+  ],
+]);
 
 export interface ConsoleActor {
   userId: string;
@@ -35,8 +65,14 @@ export class InternalUsersUseCase {
     private readonly sessions: SessionService,
   ) {}
 
-  async search(q: string | undefined, take: number, skip: number) {
-    const where: Prisma.UserWhereInput = q ? { email: { contains: q.trim().toLowerCase() } } : {};
+  async search(actor: ConsoleActor, q: string | undefined, take: number, skip: number) {
+    const verAfiliados = grants(actor.permissions, PERMISO_VER_AFILIADOS);
+    const filtros: Prisma.UserWhereInput[] = [];
+    if (q) filtros.push({ email: { contains: q.trim().toLowerCase() } });
+    /* Sin `user:read-affiliates` solo existen para quien busca los usuarios
+       con rol interno: el resto ni aparece ni suma al total. */
+    if (!verAfiliados) filtros.push({ internalRoles: { some: {} } });
+    const where: Prisma.UserWhereInput = filtros.length > 0 ? { AND: filtros } : {};
     const [total, filas] = await Promise.all([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
@@ -57,6 +93,8 @@ export class InternalUsersUseCase {
     ]);
     return {
       total,
+      /* La pantalla explica qué se le ocultó; decidirlo sigue siendo del servidor. */
+      visibility: { affiliates: verAfiliados },
       items: filas.map((u) => ({
         id: u.id,
         email: u.email,
@@ -64,14 +102,19 @@ export class InternalUsersUseCase {
         status: u.status,
         lastLoginAt: u.lastLoginAt?.toISOString() ?? null,
         internalRoles: u.internalRoles.map((r) => r.role.key),
-        organizations: u._count.organizationUsers,
+        /* Con empresa o sin ella también es información sobre una persona afiliada. */
+        organizations: verAfiliados ? u._count.organizationUsers : null,
       })),
     };
   }
 
-  async detail(userId: string) {
-    const u = await this.prisma.user.findUnique({
-      where: { id: userId },
+  async detail(actor: ConsoleActor, userId: string) {
+    const verAfiliados = grants(actor.permissions, PERMISO_VER_AFILIADOS);
+    const verSesiones = grants(actor.permissions, PERMISO_INSPECCIONAR_SESIONES);
+    /* Quien no puede ver afiliados recibe el mismo 404 que un id inexistente:
+       no se confirma que una persona afiliada exista. */
+    const u = await this.prisma.user.findFirst({
+      where: { id: userId, ...(verAfiliados ? {} : { internalRoles: { some: {} } }) },
       select: {
         id: true,
         email: true,
@@ -97,9 +140,24 @@ export class InternalUsersUseCase {
       },
     });
     if (!u) throw new NotFoundException("Usuario no encontrado.");
-    const { authSubject, ...resto } = u;
+    const { authSubject, organizationUsers, sessions, ...resto } = u;
     /* El sujeto del proveedor no se expone; basta saber si ya está vinculado. */
-    return { ...resto, linked: authSubject !== null };
+    return {
+      ...resto,
+      linked: authSubject !== null,
+      visibility: { affiliates: verAfiliados, sessionDetails: verSesiones },
+      organizationUsers: verAfiliados ? organizationUsers : null,
+      /* Saber que hay sesiones abiertas basta para cerrarlas; desde dónde y con
+         qué navegador es dato personal y exige `session:inspect`. */
+      sessions: sessions.map((s) => ({
+        id: s.id,
+        channel: s.channel,
+        createdAt: s.createdAt,
+        lastSeenAt: s.lastSeenAt,
+        ipAddress: verSesiones ? s.ipAddress : null,
+        userAgent: verSesiones ? s.userAgent : null,
+      })),
+    };
   }
 
   /** Alta de usuario interno con su primer rol. Entra al vincular su correo verificado. */
@@ -225,6 +283,8 @@ export class InternalUsersUseCase {
     if (excede.length > 0) {
       throw new ForbiddenException(`No puedes otorgar permisos que no tienes: ${excede.join(", ")}.`);
     }
+    const motivo = ROLES_SIN_ALCANCE_APLICADO.get(rol.key);
+    if (motivo) throw new UnprocessableEntityException(motivo);
     try {
       await tx.userInternalRole.create({ data: { userId, roleId: rol.id, grantedByUserId: actor.userId } });
     } catch (e) {
