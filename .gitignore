@@ -11,3 +11,6 @@ coverage/
 !.env.example
 
 .DS_Store
+
+# Paquetes empaquetados a mano (pnpm pack): nunca en el repositorio
+*.tgz
