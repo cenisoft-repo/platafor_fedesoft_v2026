@@ -1,0 +1,9 @@
+#!/bin/sh
+# Aplica las migraciones pendientes (forward-only) y termina.
+# Corre como trabajo aparte, antes de mover el tráfico a la versión nueva, con
+# la credencial dueña del esquema. Esa credencial nunca está en el entorno del
+# API: en producción, el API se niega a arrancar si la ve.
+set -eu
+: "${MIGRATION_DATABASE_URL:?MIGRATION_DATABASE_URL es obligatoria}"
+cd /app/packages/db
+DATABASE_URL="$MIGRATION_DATABASE_URL" exec node node_modules/prisma/build/index.js migrate deploy --schema prisma/schema.prisma

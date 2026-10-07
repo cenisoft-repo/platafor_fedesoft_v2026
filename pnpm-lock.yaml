@@ -102,6 +102,9 @@ importers:
       '@prisma/client':
         specifier: 6.19.3
         version: 6.19.3(prisma@6.19.3(typescript@5.7.2))(typescript@5.7.2)
+      prisma:
+        specifier: 6.19.3
+        version: 6.19.3(typescript@5.7.2)
     devDependencies:
       '@fedesoft/config':
         specifier: workspace:*
@@ -112,9 +115,6 @@ importers:
       eslint:
         specifier: 9.39.1
         version: 9.39.1(jiti@2.7.0)
-      prisma:
-        specifier: 6.19.3
-        version: 6.19.3(typescript@5.7.2)
       tsx:
         specifier: 4.21.1
         version: 4.21.1
